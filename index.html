@@ -30,7 +30,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v3.3";
+const VERSION="v3.4";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -482,12 +482,27 @@ function ScanDeleteModal({filaments,onDelete,onClose}){
 function SettingsModal({onClose,printers,onSavePrinters}){
   const [key,setKey]=useState(loadApiKey());
   const [saved,setSaved]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const [showKey,setShowKey]=useState(false);
   const [printerList,setPrinterList]=useState(printers.join("\n"));
 
   function handleSave(){
     saveApiKey(key.trim());
     onSavePrinters(printerList.split("\n").map(p=>p.trim()).filter(Boolean));
     setSaved(true);setTimeout(()=>setSaved(false),1500);
+  }
+  function handleCopy(){
+    if(!key){return;}
+    navigator.clipboard.writeText(key).then(()=>{
+      setCopied(true);setTimeout(()=>setCopied(false),2000);
+    }).catch(()=>{
+      // fallback for older iOS
+      const el=document.createElement("textarea");
+      el.value=key;document.body.appendChild(el);
+      el.select();document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);setTimeout(()=>setCopied(false),2000);
+    });
   }
 
   return <Modal title="⚙️ Einstellungen" onClose={onClose}>
@@ -498,7 +513,17 @@ function SettingsModal({onClose,printers,onSavePrinters}){
       <span style={{color:TEXT_DIM}}>3. </span>API Keys → Create Key → kopieren
     </div>
     <Field label="ANTHROPIC API KEY">
-      <input style={inputStyle} type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..."/>
+      <div style={{display:"flex",gap:6}}>
+        <input style={{...inputStyle,flex:1}} type={showKey?"text":"password"} value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..."/>
+        <button onClick={()=>setShowKey(v=>!v)} style={{background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:13,flexShrink:0}}>
+          {showKey?"🙈":"👁"}
+        </button>
+        <button onClick={handleCopy} style={{
+          background:copied?"#1a4020":SURFACE2,color:copied?MINT:TEXT_DIM,
+          border:`1px solid ${copied?MINT:BORDER}`,borderRadius:6,padding:"0 10px",
+          cursor:"pointer",fontSize:12,...mono,flexShrink:0,transition:"all 0.2s"
+        }}>{copied?"✓":"Kopieren"}</button>
+      </div>
     </Field>
     <Field label="DRUCKER-LISTE (eine pro Zeile)">
       <textarea style={{...inputStyle,height:100,resize:"none",lineHeight:1.6}} value={printerList} onChange={e=>setPrinterList(e.target.value)}/>
