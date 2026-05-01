@@ -30,7 +30,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v3.1";
+const VERSION="v3.3";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -185,14 +185,25 @@ function MaterialCombo({value,onChange}){
 }
 
 // ── Filament Card ──
-function FilamentCard({fil,onEdit,onDelete,fullWeight}){
+function FilamentCard({fil,onEdit,onDelete}){
   const fw=fil.fullWeight||1000;
-  const totalStock=fil.stock||[];
-  const totalInUse=fil.inUse||[];
-  const totalCount=totalStock.length+totalInUse.length;
-  const hasLow=totalInUse.some(u=>u.weight<=100)||totalStock.some(s=>s.weight<=100);
+  const stock=fil.stock||[];
+  const inUse=fil.inUse||[];
+  const totalCount=stock.length+inUse.length;
+  const hasLow=[...stock,...inUse].some(s=>s.weight<=100);
 
-  return <div style={{background:SURFACE,border:`1px solid ${totalInUse.length>0?"#1a4020":BORDER}`,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
+  const fullStock=stock.filter(s=>s.weight>=fw);
+  const partialStock=stock.filter(s=>s.weight<fw);
+
+  // Group full spools by location
+  const fullGroups=fullStock.reduce((acc,s)=>{
+    const k=s.location||"Lager";
+    if(!acc[k])acc[k]=0;
+    acc[k]++;
+    return acc;
+  },{});
+
+  return <div style={{background:SURFACE,border:`1px solid ${inUse.length>0?"#1a4020":BORDER}`,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
     {/* Header */}
     <div style={{display:"flex",alignItems:"center",gap:10}}>
       <ColorChip hex={fil.colorHex} size={32}/>
@@ -204,7 +215,7 @@ function FilamentCard({fil,onEdit,onDelete,fullWeight}){
           <Badge color={MINT}>{fil.material}</Badge>
           <Badge>{fil.diameter}mm</Badge>
           <Badge>{fw}g/Spule</Badge>
-          <Badge color={hasLow?"#f87171":TEXT_DIM}>{totalCount} Spule{totalCount!==1?"n":""}</Badge>
+          <Badge color={hasLow?"#ff2020":TEXT_DIM}>{totalCount} Spule{totalCount!==1?"n":""}</Badge>
         </div>
       </div>
       <div style={{display:"flex",gap:6}}>
@@ -214,39 +225,43 @@ function FilamentCard({fil,onEdit,onDelete,fullWeight}){
     </div>
 
     {/* Stock */}
-    {totalStock.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,display:"flex",flexDirection:"column",gap:5}}>
-      <div style={{...mono,color:TEXT_DIM,fontSize:9,letterSpacing:"0.1em"}}>📦 LAGER</div>
-      {/* Group full spools by location */}
-      {Object.entries(totalStock.reduce((acc,s)=>{
-        const key=`${s.location||"?"}__${s.weight===fw?"full":"partial"}`;
-        if(!acc[key])acc[key]={location:s.location||"?",weight:s.weight,count:0,isFull:s.weight>=fw};
-        acc[key].count++;
-        return acc;
-      },{})).map(([key,grp])=>(
-        <div key={key}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:grp.isFull?0:3}}>
-            <span style={{...mono,color:TEXT,fontSize:11}}>
-              {grp.count>1?`${grp.count}× `:""}{grp.location}
-              {grp.isFull&&<span style={{color:TEXT_DIM}}> · voll</span>}
+    {stock.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
+      <div style={{...mono,color:TEXT_DIM,fontSize:9,letterSpacing:"0.1em",marginBottom:2}}>📦 LAGER</div>
+
+      {/* Full spools — compact, mint green */}
+      {Object.entries(fullGroups).map(([loc,cnt])=>(
+        <div key={"full-"+loc} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 8px",background:"#071a0e",borderRadius:5,border:"1px solid #0e3018"}}>
+          <span style={{color:MINT,fontSize:12}}>●</span>
+          <span style={{...mono,color:MINT,fontSize:11,flex:1}}>{cnt>1?`${cnt}× `:""}{loc}</span>
+          <span style={{...mono,color:MINT,fontSize:10,opacity:0.7}}>voll · {fw}g</span>
+        </div>
+      ))}
+
+      {/* Partial spools — yellow with bar */}
+      {partialStock.map(s=>(
+        <div key={s.id} style={{padding:"6px 8px",background:"#1a1400",borderRadius:5,border:"1px solid #2e2000"}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+            <span style={{color:"#facc15",fontSize:12}}>◑</span>
+            <span style={{...mono,color:"#facc15",fontSize:11,flex:1}}>{s.location||"Lager"}</span>
+            <span style={{...mono,color:s.weight<=100?"#ff2020":"#facc15",fontSize:11,fontWeight:700}}>
+              {s.weight}g <span style={{color:TEXT_MUTED,fontWeight:400}}>/ {fw}g ({calcPct(s.weight,fw)}%)</span>
             </span>
-            {!grp.isFull&&<span style={{...mono,color:grp.weight<=100?"#f87171":TEXT,fontSize:11,fontWeight:700}}>
-              {grp.weight}g <span style={{color:TEXT_MUTED}}>/ {fw}g ({calcPct(grp.weight,fw)}%)</span>
-            </span>}
           </div>
-          {!grp.isFull&&<RemainingBar weight={grp.weight} fullWeight={fw}/>}
+          <RemainingBar weight={s.weight} fullWeight={fw}/>
         </div>
       ))}
     </div>}
 
     {/* In Use */}
-    {totalInUse.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,display:"flex",flexDirection:"column",gap:6}}>
-      <div style={{...mono,color:TEXT_DIM,fontSize:9,letterSpacing:"0.1em"}}>🖨 IN GEBRAUCH</div>
-      {totalInUse.map(u=>(
-        <div key={u.id}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-            <span style={{...mono,color:MINT,fontSize:11}}>{u.printer}</span>
-            <span style={{...mono,color:u.weight<=100?"#f87171":TEXT,fontSize:11,fontWeight:700}}>
-              {u.weight}g <span style={{color:TEXT_MUTED}}>/ {fw}g ({calcPct(u.weight,fw)}%)</span>
+    {inUse.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
+      <div style={{...mono,color:TEXT_DIM,fontSize:9,letterSpacing:"0.1em",marginBottom:2}}>🖨 IN GEBRAUCH</div>
+      {inUse.map(u=>(
+        <div key={u.id} style={{padding:"6px 8px",background:"#030d1a",borderRadius:5,border:"1px solid #0a1e30"}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+            <span style={{color:"#60a5fa",fontSize:12}}>▶</span>
+            <span style={{...mono,color:"#60a5fa",fontSize:11,flex:1}}>{u.printer}</span>
+            <span style={{...mono,color:u.weight<=100?"#ff2020":"#60a5fa",fontSize:11,fontWeight:700}}>
+              {u.weight}g <span style={{color:TEXT_MUTED,fontWeight:400}}>/ {fw}g ({calcPct(u.weight,fw)}%)</span>
             </span>
           </div>
           <RemainingBar weight={u.weight} fullWeight={fw}/>
@@ -588,7 +603,7 @@ function App(){
     <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"calc(14px + env(safe-area-inset-top)) 14px 12px",position:"sticky",top:0,zIndex:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:17,fontWeight:700,...mono,color:MINT}}>🧵 FILAMENT <span style={{fontSize:9,color:TEXT_DIM,fontWeight:400}}>{VERSION}</span></div>
+          <div style={{fontSize:17,fontWeight:700,...mono,color:MINT}}>🧵 FILAMENT <span style={{fontSize:9,color:TEXT_DIM,fontWeight:400}}>{VERSION}</span> <span style={{fontSize:9,color:TEXT_MUTED,fontWeight:400}}>by MeltingHero</span></div>
           <div style={{...mono,fontSize:10,color:TEXT_DIM,marginTop:2}}>
             {total} Typen · {totalSpools} Spulen
             {lowCount>0&&<span style={{color:"#f87171"}}> · {lowCount} fast leer</span>}
