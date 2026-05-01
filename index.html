@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Filament"/>
+  <meta name="theme-color" content="#86efac"/>
+  <link rel="manifest" href="./manifest.json"/>
+  <link rel="apple-touch-icon" href="./icon-192.png"/>
+  <title>Filament Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+  <style>
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+    html,body{margin:0;padding:0;background:#080c0a;color:#d4f0dc;font-family:'IBM Plex Mono',monospace;overscroll-behavior:none;}
+    input,select,button{font-family:'IBM Plex Mono',monospace;}
+    input[type=number]::-webkit-inner-spin-button{opacity:1;}
+    ::-webkit-scrollbar{width:4px;}
+    ::-webkit-scrollbar-track{background:#0e1410;}
+    ::-webkit-scrollbar-thumb{background:#1a2e1e;border-radius:2px;}
+    select option{background:#0e1410;color:#d4f0dc;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script type="text/babel">
+const {useState, useEffect, useRef} = React;
+
+const VERSION = "v1.3";
+const STORAGE_KEY = "filament_v1";
+const API_KEY_KEY = "filament_apikey";
+const PRINTERS = ["—","Bambu H2C","VCore 4.1","HevOrt"];
+const MATERIALS = ["PLA","PETG","ABS","ASA","TPU","PA","PC","PVA","HIPS","CF","Sonstiges"];
+const DIAMETERS = [1.75, 2.85];
+
+const MINT="#86efac", BG="#080c0a", SURFACE="#0e1410", SURFACE2="#141c16";
+const BORDER="#1a2e1e", TEXT="#d4f0dc", TEXT_DIM="#4a7a56", TEXT_MUTED="#2a4a30";
+
+const mono={fontFamily:"'IBM Plex Mono',monospace"};
+const inputStyle={...mono,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,
+  color:TEXT,padding:"8px 10px",fontSize:13,width:"100%",boxSizing:"border-box",outline:"none",
+  WebkitAppearance:"none"};
+const labelCss={...mono,color:TEXT_DIM,fontSize:10,marginBottom:3,display:"block",letterSpacing:"0.08em"};
+
+function calcPct(r,t){if(!t)return 0;return Math.min(100,Math.max(0,Math.round(r/t*100)));}
+function genId(){return Math.random().toString(36).slice(2,10)+Date.now().toString(36);}
+function loadSpools(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||[];}catch{return[];}}
+function saveSpools(s){localStorage.setItem(STORAGE_KEY,JSON.stringify(s));}
+function loadKey(){return localStorage.getItem(API_KEY_KEY)||"";}
+function saveKey(k){localStorage.setItem(API_KEY_KEY,k);}
+
+async function scanLabel(b64, mediaType, mode, apiKey) {
+  const sys = mode==="add"
+    ? `Filament label reader. Return ONLY JSON no markdown: {"brand":"","material":"PLA","colorName":"","colorHex":"#aaaaaa","diameter":1.75,"totalWeight":1000,"notes":""}. Diameter default 1.75, totalWeight in grams default 1000.`
+    : `Filament label reader. Return ONLY JSON: {"brand":"","material":"","colorName":"","colorHex":""}`;
+  const res = await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:"claude-opus-4-5",max_tokens:500,system:sys,
+      messages:[{role:"user",content:[
+        {type:"image",source:{type:"base64",media_type:mediaType,data:b64}},
+        {type:"text",text:"Extract filament info."}
+      ]}]
+    })
+  });
+  const data=await res.json();
+  if(data.error) throw new Error(data.error.message);
+  const text=data.content?.map(b=>b.text||"").join("")||"{}";
+  return JSON.parse(text.replace(/```json|```/g,"").trim());
+}
+
+function matchScore(spool,scan){
+  let s=0;
+  if(scan.brand&&spool.brand?.toLowerCase().includes(scan.brand.toLowerCase()))s+=3;
+  if(scan.material&&spool.material?.toLowerCase()===scan.material.toLowerCase())s+=3;
+  if(scan.colorName&&spool.colorName?.toLowerCase().includes(scan.colorName.toLowerCase()))s+=2;
+  if(scan.colorHex&&spool.colorHex){
+    try{
+      const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+      const [r1,g1,b1]=p(scan.colorHex),[r2,g2,b2]=p(spool.colorHex);
+      if(Math.sqrt((r1-r2)**2+(g1-g2)**2+(b1-b2)**2)<60)s+=1;
+    }catch{}
+  }
+  return s;
+}
+
+// ── NEON ILLUSTRATION ──
+function NeonIllustration(){
+  return (
+    <svg viewBox="0 0 340 260" width="100%" style={{display:"block",maxWidth:320,margin:"0 auto"}}>
+      <defs>
+        <filter id="gg"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="gc"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="gm"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="gy"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="gs"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      {/* Printer frame */}
+      <rect x="108" y="88" width="124" height="125" rx="4" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)" opacity="0.9"/>
+      <rect x="108" y="60" width="7" height="155" rx="2" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
+      <rect x="225" y="60" width="7" height="155" rx="2" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
+      <rect x="106" y="58" width="128" height="9" rx="3" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
+      <rect x="106" y="207" width="128" height="9" rx="3" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
+      {/* Bed */}
+      <rect x="118" y="172" width="104" height="9" rx="2" fill="none" stroke="#00ffff" strokeWidth="1.5" filter="url(#gc)"/>
+      {[130,143,156,169,182,195,208].map(x=><line key={x} x1={x} y1="172" x2={x} y2="181" stroke="#00ffff" strokeWidth="0.6" opacity="0.5"/>)}
+      {/* X rail */}
+      <rect x="110" y="128" width="120" height="5" rx="2" fill="none" stroke="#00ffff" strokeWidth="1.2" filter="url(#gc)" opacity="0.8"/>
+      {/* Printhead */}
+      <rect x="152" y="122" width="22" height="25" rx="3" fill="#050f08" stroke="#00ff88" strokeWidth="1.8" filter="url(#gg)"/>
+      <rect x="159" y="145" width="8" height="7" rx="1" fill="#050f08" stroke="#00ffff" strokeWidth="1.2" filter="url(#gc)"/>
+      <circle cx="163" cy="155" r="3.5" fill="#00ffff" opacity="0.9" filter="url(#gs)"/>
+      <circle cx="163" cy="155" r="1.5" fill="#ffffff" opacity="0.8"/>
+      <rect x="156" y="163" width="14" height="10" rx="1.5" fill="#050f08" stroke="#00ff88" strokeWidth="1" filter="url(#gg)" opacity="0.8"/>
+      <path d="M163 122 Q163 100 180 88" fill="none" stroke="#ff00ff" strokeWidth="1.5" strokeDasharray="4,3" filter="url(#gm)" opacity="0.8"/>
+      <rect x="116" y="188" width="26" height="16" rx="2" fill="#050f08" stroke="#00ff88" strokeWidth="1" filter="url(#gg)"/>
+      <text x="129" y="200" textAnchor="middle" fill="#00ff88" fontSize="7" fontFamily="monospace" filter="url(#gg)">??</text>
+      <circle cx="219" cy="196" r="3" fill="#ff00ff" filter="url(#gs)" opacity="0.9"/>
+      {/* Spool 1 cyan */}
+      <g transform="translate(52,155) rotate(-18)">
+        <ellipse cx="0" cy="-28" rx="30" ry="9.5" fill="none" stroke="#00ffff" strokeWidth="1.5" filter="url(#gc)"/>
+        <ellipse cx="0" cy="-28" rx="11" ry="3.5" fill="none" stroke="#00ffff" strokeWidth="1" opacity="0.6"/>
+        <rect x="-30" y="-28" width="60" height="28" fill="#030b0d" opacity="0.9"/>
+        <ellipse cx="0" cy="-14" rx="22" ry="7" fill="none" stroke="#00ffff" strokeWidth="1.2" opacity="0.5"/>
+        <rect x="-22" y="-21" width="44" height="10" fill="#00ffff" opacity="0.18"/>
+        <ellipse cx="0" cy="0" rx="30" ry="9.5" fill="#030b0d" stroke="#00ffff" strokeWidth="1.8" filter="url(#gc)"/>
+        <ellipse cx="0" cy="0" rx="11" ry="3.5" fill="#030b0d" stroke="#00ffff" strokeWidth="1.2" filter="url(#gc)" opacity="0.8"/>
+        <rect x="-14" y="-8" width="28" height="12" rx="2" fill="#030b0d" stroke="#00ffff" strokeWidth="0.8" opacity="0.7"/>
+        <text x="0" y="-1" textAnchor="middle" fontSize="5" fill="#00ffff" fontFamily="monospace" opacity="0.9">???g</text>
+      </g>
+      {/* Spool 2 magenta */}
+      <g transform="translate(282,152) rotate(14)">
+        <ellipse cx="0" cy="-24" rx="26" ry="8" fill="none" stroke="#ff00ff" strokeWidth="1.5" filter="url(#gm)"/>
+        <ellipse cx="0" cy="-24" rx="10" ry="3" fill="none" stroke="#ff00ff" strokeWidth="1" opacity="0.6"/>
+        <rect x="-26" y="-24" width="52" height="24" fill="#0d030d" opacity="0.9"/>
+        <ellipse cx="0" cy="-12" rx="19" ry="6" fill="none" stroke="#ff00ff" strokeWidth="1.2" opacity="0.5"/>
+        <rect x="-19" y="-18" width="38" height="9" fill="#ff00ff" opacity="0.18"/>
+        <ellipse cx="0" cy="0" rx="26" ry="8" fill="#0d030d" stroke="#ff00ff" strokeWidth="1.8" filter="url(#gm)"/>
+        <ellipse cx="0" cy="0" rx="10" ry="3" fill="#0d030d" stroke="#ff00ff" strokeWidth="1.2" filter="url(#gm)" opacity="0.8"/>
+        <rect x="-13" y="-7" width="26" height="11" rx="2" fill="#0d030d" stroke="#ff00ff" strokeWidth="0.8" opacity="0.7"/>
+        <text x="0" y="-1" textAnchor="middle" fontSize="5" fill="#ff00ff" fontFamily="monospace" opacity="0.9">???g</text>
+      </g>
+      {/* Spool 3 yellow lying down */}
+      <g transform="translate(170,218)">
+        <ellipse cx="-30" cy="0" rx="9" ry="18" fill="#0d0d03" stroke="#ffee00" strokeWidth="1.8" filter="url(#gy)"/>
+        <ellipse cx="-30" cy="0" rx="3.5" ry="7" fill="#0d0d03" stroke="#ffee00" strokeWidth="1" opacity="0.7"/>
+        <rect x="-30" y="-18" width="60" height="36" fill="#0d0d03" opacity="0.9"/>
+        <rect x="-22" y="-14" width="44" height="28" fill="#ffee00" opacity="0.1"/>
+        <ellipse cx="0" cy="0" rx="5" ry="14" fill="none" stroke="#ffee00" strokeWidth="1.2" opacity="0.4"/>
+        <ellipse cx="30" cy="0" rx="9" ry="18" fill="#0d0d03" stroke="#ff9900" strokeWidth="1.8" filter="url(#gy)"/>
+        <ellipse cx="30" cy="0" rx="3.5" ry="7" fill="#0d0d03" stroke="#ff9900" strokeWidth="1.2" filter="url(#gy)" opacity="0.8"/>
+        <rect x="-22" y="-7" width="44" height="14" fill="#ff9900" opacity="0.22"/>
+        <text x="0" y="4" textAnchor="middle" fontSize="6" fill="#ffee00" fontFamily="monospace" opacity="0.9">???</text>
+      </g>
+      {/* Question marks */}
+      <text x="295" y="68" fontSize="46" fill="#ff00ff" fontFamily="monospace" fontWeight="bold" filter="url(#gm)" opacity="0.75">?</text>
+      <text x="14" y="75" fontSize="36" fill="#00ffff" fontFamily="monospace" fontWeight="bold" filter="url(#gc)" opacity="0.7">?</text>
+      <text x="175" y="44" fontSize="24" fill="#00ff88" fontFamily="monospace" fontWeight="bold" filter="url(#gg)" opacity="0.8">?</text>
+      <text x="254" y="118" fontSize="16" fill="#ffee00" fontFamily="monospace" fontWeight="bold" filter="url(#gy)" opacity="0.7">?</text>
+      <text x="70" y="105" fontSize="14" fill="#ff00ff" fontFamily="monospace" fontWeight="bold" filter="url(#gm)" opacity="0.6">?</text>
+      <text x="22" y="185" fontSize="12" fill="#00ffff" fontFamily="monospace" fontWeight="bold" filter="url(#gc)" opacity="0.5">?</text>
+      <text x="308" y="200" fontSize="11" fill="#00ff88" fontFamily="monospace" fontWeight="bold" filter="url(#gg)" opacity="0.5">?</text>
+    </svg>
+  );
+}
+
+// ── UI Primitives ──
+function ColorChip({hex,size=28}){
+  return <div style={{width:size,height:size,borderRadius:4,background:hex||"#333",border:`1px solid rgba(134,239,172,0.15)`,flexShrink:0}}/>;
+}
+function RemainingBar({pct}){
+  const color=pct>60?MINT:pct>25?"#facc15":"#f87171";
+  return <div style={{width:"100%",height:4,background:"#0e1c12",borderRadius:3,overflow:"hidden"}}>
+    <div style={{width:`${pct}%`,height:"100%",background:color,transition:"width 0.3s"}}/>
+  </div>;
+}
+function Badge({color,bg,children}){
+  return <span style={{...mono,background:bg||SURFACE2,color:color||TEXT_DIM,fontSize:10,padding:"2px 7px",borderRadius:4,whiteSpace:"nowrap"}}>{children}</span>;
+}
+function Field({label,children}){
+  return <div style={{display:"flex",flexDirection:"column"}}><span style={labelCss}>{label}</span>{children}</div>;
+}
+function PhotoButton({label,onChange,loading}){
+  const ref=useRef();
+  return <>
+    <button onClick={()=>ref.current.click()} style={{
+      width:"100%",padding:"11px 0",background:SURFACE,
+      border:`1px dashed ${loading?"#facc15":BORDER}`,borderRadius:8,
+      color:loading?"#facc15":MINT,cursor:"pointer",fontSize:13,...mono
+    }}>{loading?"⏳ Scanne...":label}</button>
+    <input ref={ref} type="file" accept="image/*" capture="environment" onChange={onChange} style={{display:"none"}}/>
+  </>;
+}
+function Modal({title,children,onClose}){
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:"16px 16px 0 0",
+      width:"100%",maxWidth:480,maxHeight:"92vh",overflowY:"auto",
+      padding:"20px 20px calc(20px + env(safe-area-inset-bottom))",display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{color:MINT,fontWeight:700,fontSize:16,...mono}}>{title}</span>
+        <button onClick={onClose} style={{background:"none",border:"none",color:TEXT_DIM,fontSize:22,cursor:"pointer",lineHeight:1}}>✕</button>
+      </div>
+      {children}
+    </div>
+  </div>;
+}
+
+// ── Settings Modal ──
+function SettingsModal({onClose}){
+  const [key,setKey]=useState(loadKey());
+  const [saved,setSaved]=useState(false);
+  function handleSave(){saveKey(key.trim());setSaved(true);setTimeout(()=>setSaved(false),1500);}
+  return <Modal title="⚙️ Einstellungen" onClose={onClose}>
+    <div style={{...mono,color:TEXT_DIM,fontSize:11,lineHeight:1.6}}>
+      Für den KI-Etikett-Scan wird ein Anthropic API Key benötigt.<br/>
+      Erhältlich unter <span style={{color:MINT}}>console.anthropic.com</span>
+    </div>
+    <Field label="ANTHROPIC API KEY">
+      <input style={inputStyle} type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..."/>
+    </Field>
+    <button onClick={handleSave} style={{
+      background:saved?"#1a4020":MINT,color:saved?MINT:"#000",border:saved?`1px solid ${MINT}`:"none",
+      borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:14,cursor:"pointer",...mono,width:"100%",transition:"all 0.2s"
+    }}>{saved?"✓ Gespeichert":"Speichern"}</button>
+    <div style={{...mono,color:TEXT_MUTED,fontSize:10,textAlign:"center"}}>
+      Key wird nur lokal auf diesem Gerät gespeichert.
+    </div>
+  </Modal>;
+}
+
+// ── Spool Card ──
+function SpoolCard({spool,onEdit,onDelete}){
+  const pct=calcPct(spool.remainingG,spool.totalWeight);
+  const inPrinter=spool.printer&&spool.printer!=="—";
+  return <div style={{background:SURFACE,border:`1px solid ${inPrinter?"#1a4020":BORDER}`,borderRadius:10,padding:"13px 14px",display:"flex",flexDirection:"column",gap:8}}>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <ColorChip hex={spool.colorHex} size={34}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{color:TEXT,fontWeight:700,fontSize:14,...mono,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+          {spool.brand||"—"} <span style={{color:TEXT_DIM,fontWeight:400}}>{spool.colorName}</span>
+        </div>
+        <div style={{display:"flex",gap:5,marginTop:4,flexWrap:"wrap"}}>
+          <Badge color={MINT}>{spool.material}</Badge>
+          <Badge>{spool.diameter}mm</Badge>
+          <Badge>{spool.totalWeight}g</Badge>
+          {inPrinter&&<Badge color={MINT} bg="#0d2a18">🖨 {spool.printer}</Badge>}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>onEdit(spool)} style={{background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:6,padding:"6px 9px",cursor:"pointer",fontSize:13}}>✏️</button>
+        <button onClick={()=>onDelete(spool.id)} style={{background:"#1a0808",color:"#f87171",border:"1px solid #2e1010",borderRadius:6,padding:"6px 9px",cursor:"pointer",fontSize:13}}>✕</button>
+      </div>
+    </div>
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+        <span style={{...mono,color:TEXT_DIM,fontSize:10}}>RESTMENGE</span>
+        <span style={{...mono,color:pct<25?"#f87171":TEXT,fontSize:11,fontWeight:700}}>
+          {spool.remainingG}g <span style={{color:TEXT_MUTED}}>/ {spool.totalWeight}g ({pct}%)</span>
+        </span>
+      </div>
+      <RemainingBar pct={pct}/>
+    </div>
+    {spool.location&&<div style={{...mono,color:TEXT_DIM,fontSize:10}}>📍 {spool.location}</div>}
+  </div>;
+}
+
+// ── Add/Edit Modal ──
+function SpoolModal({initial,onSave,onClose}){
+  const [form,setForm]=useState({
+    brand:"",material:"PLA",colorName:"",colorHex:"#aaaaaa",
+    diameter:1.75,totalWeight:1000,remainingG:1000,
+    location:"",printer:"—",notes:"",
+    ...(initial||{})
+  });
+  const [scanning,setScanning]=useState(false);
+  const [scanError,setScanError]=useState("");
+  const [preview,setPreview]=useState(null);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  async function handlePhoto(e){
+    const file=e.target.files[0];if(!file)return;
+    const apiKey=loadKey();
+    if(!apiKey){setScanError("Kein API Key gesetzt. Bitte in Einstellungen eintragen.");return;}
+    setScanError("");setScanning(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      const b64=reader.result.split(",")[1];
+      setPreview(reader.result);
+      try{
+        const r=await scanLabel(b64,file.type,"add",apiKey);
+        const nt=r.totalWeight||form.totalWeight;
+        setForm(f=>({...f,
+          brand:r.brand||f.brand,
+          material:MATERIALS.includes(r.material)?r.material:(r.material||f.material),
+          colorName:r.colorName||f.colorName,
+          colorHex:r.colorHex||f.colorHex,
+          diameter:DIAMETERS.includes(r.diameter)?r.diameter:f.diameter,
+          totalWeight:nt,remainingG:nt,notes:r.notes||f.notes,
+        }));
+      }catch(err){setScanError("Scan fehlgeschlagen: "+err.message);}
+      setScanning(false);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  return <Modal onClose={onClose} title={initial?.id?"Spule bearbeiten":"Neue Spule"}>
+    {!initial?.id&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      <PhotoButton label="📷 Etikett scannen" onChange={handlePhoto} loading={scanning}/>
+      {scanError&&<div style={{color:"#f87171",fontSize:11,...mono}}>{scanError}</div>}
+      {preview&&!scanning&&<div style={{display:"flex",alignItems:"center",gap:8}}>
+        <img src={preview} alt="" style={{height:50,borderRadius:5,border:`1px solid ${BORDER}`}}/>
+        <span style={{...mono,color:MINT,fontSize:10}}>✓ Scan ok — Felder prüfen</span>
+      </div>}
+    </div>}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <Field label="HERSTELLER"><input style={inputStyle} value={form.brand} onChange={e=>set("brand",e.target.value)} placeholder="Bambu Lab"/></Field>
+      <Field label="FARBE"><input style={inputStyle} value={form.colorName} onChange={e=>set("colorName",e.target.value)} placeholder="Jade Green"/></Field>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <Field label="MATERIAL">
+        <select style={inputStyle} value={form.material} onChange={e=>set("material",e.target.value)}>
+          {MATERIALS.map(m=><option key={m}>{m}</option>)}
+        </select>
+      </Field>
+      <Field label="FARBE (HEX)">
+        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+          <input type="color" value={form.colorHex} onChange={e=>set("colorHex",e.target.value)}
+            style={{width:36,height:36,border:`1px solid ${BORDER}`,borderRadius:6,background:SURFACE,cursor:"pointer",padding:2,flexShrink:0}}/>
+          <input style={{...inputStyle,flex:1}} value={form.colorHex} onChange={e=>set("colorHex",e.target.value)}/>
+        </div>
+      </Field>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <Field label="DURCHMESSER">
+        <select style={inputStyle} value={form.diameter} onChange={e=>set("diameter",parseFloat(e.target.value))}>
+          {DIAMETERS.map(d=><option key={d} value={d}>{d} mm</option>)}
+        </select>
+      </Field>
+      <Field label="VOLLGEWICHT (g)">
+        <input style={inputStyle} type="number" value={form.totalWeight} onChange={e=>set("totalWeight",parseInt(e.target.value)||0)}/>
+      </Field>
+    </div>
+    <Field label={`RESTMENGE (g) → ${calcPct(form.remainingG,form.totalWeight)}%`}>
+      <input style={inputStyle} type="number" value={form.remainingG} onChange={e=>set("remainingG",parseInt(e.target.value)||0)}/>
+      <div style={{marginTop:5}}><RemainingBar pct={calcPct(form.remainingG,form.totalWeight)}/></div>
+    </Field>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <Field label="LAGERORT"><input style={inputStyle} value={form.location} onChange={e=>set("location",e.target.value)} placeholder="Regal 2"/></Field>
+      <Field label="IN DRUCKER">
+        <select style={inputStyle} value={form.printer} onChange={e=>set("printer",e.target.value)}>
+          {PRINTERS.map(p=><option key={p}>{p}</option>)}
+        </select>
+      </Field>
+    </div>
+    <Field label="NOTIZEN"><input style={inputStyle} value={form.notes} onChange={e=>set("notes",e.target.value)} placeholder="..."/></Field>
+    <button onClick={()=>onSave(form)} style={{
+      background:MINT,color:"#000",border:"none",borderRadius:8,
+      padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4
+    }}>Speichern</button>
+  </Modal>;
+}
+
+// ── Scan Delete Modal ──
+function ScanDeleteModal({spools,onDelete,onClose}){
+  const [scanning,setScanning]=useState(false);
+  const [matches,setMatches]=useState(null);
+  const [scanError,setScanError]=useState("");
+  const [preview,setPreview]=useState(null);
+
+  async function handlePhoto(e){
+    const file=e.target.files[0];if(!file)return;
+    const apiKey=loadKey();
+    if(!apiKey){setScanError("Kein API Key. Bitte in Einstellungen eintragen.");return;}
+    setScanError("");setMatches(null);setScanning(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      const b64=reader.result.split(",")[1];
+      setPreview(reader.result);
+      try{
+        const scan=await scanLabel(b64,file.type,"find",apiKey);
+        const scored=spools.map(s=>({spool:s,score:matchScore(s,scan)}))
+          .filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
+        setMatches(scored);
+      }catch(err){setScanError("Scan fehlgeschlagen: "+err.message);}
+      setScanning(false);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  return <Modal onClose={onClose} title="Spule suchen & löschen">
+    <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Fotografiere das Etikett der Spule die du entfernen möchtest.</div>
+    <PhotoButton label="📷 Spulenetikett scannen" onChange={handlePhoto} loading={scanning}/>
+    {scanError&&<div style={{color:"#f87171",fontSize:11,...mono}}>{scanError}</div>}
+    {preview&&<div style={{display:"flex",alignItems:"center",gap:8}}>
+      <img src={preview} alt="" style={{height:50,borderRadius:5,border:`1px solid ${BORDER}`}}/>
+    </div>}
+    {matches!==null&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {matches.length===0
+        ?<div style={{...mono,color:"#f87171",fontSize:12,textAlign:"center",padding:"16px 0"}}>Keine passende Spule gefunden.</div>
+        :<>
+          <div style={{...mono,color:TEXT_DIM,fontSize:10,marginBottom:2}}>TREFFER — tippe zum Löschen:</div>
+          {matches.map(({spool})=>(
+            <button key={spool.id}
+              onClick={()=>{if(confirm(`"${spool.brand} ${spool.colorName}" löschen?`)){onDelete(spool.id);onClose();}}}
+              style={{background:"#180a0a",border:"1px solid #2e1010",borderRadius:8,padding:"10px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,textAlign:"left",width:"100%"}}>
+              <ColorChip hex={spool.colorHex} size={28}/>
+              <div style={{flex:1}}>
+                <div style={{color:TEXT,fontSize:13,fontWeight:700,...mono}}>{spool.brand} {spool.colorName}</div>
+                <div style={{color:TEXT_DIM,fontSize:10,...mono}}>{spool.material} · {spool.remainingG}g Rest{spool.location?` · ${spool.location}`:""}</div>
+              </div>
+              <span style={{...mono,color:"#f87171",fontSize:13}}>✕</span>
+            </button>
+          ))}
+        </>
+      }
+    </div>}
+  </Modal>;
+}
+
+// ── Main App ──
+function App(){
+  const [spools,setSpools]=useState(loadSpools);
+  const [modal,setModal]=useState(null);
+  const [filterMat,setFilterMat]=useState("Alle");
+  const [filterPrinter,setFilterPrinter]=useState("Alle");
+  const [search,setSearch]=useState("");
+
+  useEffect(()=>{saveSpools(spools);},[spools]);
+
+  function handleSave(form){
+    if(form.id)setSpools(s=>s.map(sp=>sp.id===form.id?form:sp));
+    else setSpools(s=>[...s,{...form,id:genId(),addedAt:Date.now()}]);
+    setModal(null);
+  }
+  function handleDelete(id){
+    if(confirm("Spule löschen?"))setSpools(s=>s.filter(sp=>sp.id!==id));
+  }
+
+  const total=spools.length;
+  const lowStock=spools.filter(s=>calcPct(s.remainingG,s.totalWeight)<25).length;
+  const inPrinters=spools.filter(s=>s.printer&&s.printer!=="—");
+  const usedMats=["Alle",...new Set(spools.map(s=>s.material))];
+
+  const filtered=spools.filter(s=>{
+    if(filterMat!=="Alle"&&s.material!==filterMat)return false;
+    if(filterPrinter==="Im Drucker"&&(!s.printer||s.printer==="—"))return false;
+    else if(filterPrinter!=="Alle"&&filterPrinter!=="Im Drucker"&&s.printer!==filterPrinter)return false;
+    if(search){const q=search.toLowerCase();if(!`${s.brand} ${s.colorName} ${s.material} ${s.location} ${s.notes}`.toLowerCase().includes(q))return false;}
+    return true;
+  });
+
+  return <div style={{minHeight:"100vh",background:BG,color:TEXT,paddingBottom:"calc(80px + env(safe-area-inset-bottom))"}}>
+    {/* Header */}
+    <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"calc(14px + env(safe-area-inset-top)) 16px 14px",position:"sticky",top:0,zIndex:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:17,fontWeight:700,...mono,color:MINT}}>
+            🧵 FILAMENT <span style={{fontSize:9,color:TEXT_DIM,fontWeight:400}}>{VERSION}</span>
+          </div>
+          <div style={{...mono,fontSize:10,color:TEXT_DIM,marginTop:2}}>
+            {total} Spulen
+            {lowStock>0&&<span style={{color:"#f87171"}}> · {lowStock} fast leer</span>}
+            {inPrinters.length>0&&<span style={{color:MINT}}> · {inPrinters.length} im Drucker</span>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>setModal("settings")} style={{background:"none",border:"none",color:TEXT_DIM,fontSize:18,cursor:"pointer",padding:"4px 6px"}}>⚙️</button>
+          {total>0&&<>
+            <button onClick={()=>setModal("scanDelete")} style={{...mono,background:"#180a0a",color:"#f87171",border:"1px solid #2e1010",borderRadius:8,padding:"8px 12px",fontSize:12,cursor:"pointer"}}>🔍</button>
+            <button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:8,padding:"9px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Neu</button>
+          </>}
+        </div>
+      </div>
+    </div>
+
+    <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+      {/* Printer status */}
+      {inPrinters.length>0&&<div style={{background:SURFACE,border:"1px solid #1a4020",borderRadius:8,padding:"10px 12px"}}>
+        <div style={{...mono,color:TEXT_DIM,fontSize:9,marginBottom:7,letterSpacing:"0.1em"}}>IM DRUCKER</div>
+        {inPrinters.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+          <ColorChip hex={s.colorHex} size={16}/>
+          <span style={{...mono,color:MINT,fontSize:11,minWidth:90}}>{s.printer}</span>
+          <span style={{...mono,color:TEXT,fontSize:11}}>{s.brand} {s.colorName}</span>
+          <Badge color={MINT} bg="#0d2a18">{s.material}</Badge>
+        </div>)}
+      </div>}
+
+      {/* Filters */}
+      {total>0&&<>
+        <input style={{...inputStyle,boxSizing:"border-box"}} placeholder="Suche..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <div style={{display:"flex",gap:8}}>
+          <select style={{...inputStyle,flex:1}} value={filterMat} onChange={e=>setFilterMat(e.target.value)}>
+            {usedMats.map(m=><option key={m}>{m}</option>)}
+          </select>
+          <select style={{...inputStyle,flex:1}} value={filterPrinter} onChange={e=>setFilterPrinter(e.target.value)}>
+            <option>Alle</option>
+            {PRINTERS.filter(p=>p!=="—").map(p=><option key={p}>{p}</option>)}
+            <option value="Im Drucker">Im Drucker</option>
+          </select>
+        </div>
+      </>}
+
+      {/* Empty state */}
+      {total===0&&<div style={{textAlign:"center",padding:"24px 10px 20px",marginTop:4}}>
+        <NeonIllustration/>
+        <div style={{...mono,fontSize:15,color:MINT,marginTop:18,fontWeight:700}}>Was liegt da eigentlich rum?</div>
+        <div style={{...mono,fontSize:11,color:TEXT_DIM,marginTop:6,lineHeight:1.7}}>
+          Keine Ahnung welches Filament du hast?<br/>Genau dafür ist das hier.
+        </div>
+        <button onClick={()=>setModal("add")} style={{
+          ...mono,background:MINT,color:"#000",border:"none",borderRadius:8,
+          padding:"12px 28px",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:20
+        }}>+ Spule erfassen</button>
+      </div>}
+
+      {total>0&&filtered.length===0&&<div style={{textAlign:"center",padding:"30px 0",...mono,color:TEXT_DIM,fontSize:12}}>Keine Treffer</div>}
+      {filtered.map(s=><SpoolCard key={s.id} spool={s} onEdit={sp=>setModal(sp)} onDelete={handleDelete}/>)}
+    </div>
+
+    {modal==="add"&&<SpoolModal onSave={handleSave} onClose={()=>setModal(null)}/>}
+    {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)}/>}
+    {modal==="scanDelete"&&<ScanDeleteModal spools={spools} onDelete={id=>setSpools(s=>s.filter(sp=>sp.id!==id))} onClose={()=>setModal(null)}/>}
+    {modal&&modal!=="add"&&modal!=="settings"&&modal!=="scanDelete"&&<SpoolModal initial={modal} onSave={handleSave} onClose={()=>setModal(null)}/>}
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("./sw.js");
+}
+</script>
+</body>
+</html>
