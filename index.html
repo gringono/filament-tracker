@@ -30,7 +30,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v3.0";
+const VERSION="v3.1";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -579,7 +579,11 @@ function App(){
     return true;
   });
 
-  return <div style={{minHeight:"100vh",background:BG,color:TEXT,paddingBottom:"calc(80px + env(safe-area-inset-bottom))"}}>
+  const isMobile=window.innerWidth<=600;
+  return <div style={{background:"#050805",minHeight:"100vh",display:"flex",justifyContent:"center"}}>
+  <div style={{width:"100%",maxWidth:430,minHeight:"100vh",background:BG,color:TEXT,
+    paddingBottom:"calc(80px + env(safe-area-inset-bottom))",
+    boxShadow:isMobile?"none":"0 0 60px rgba(0,0,0,0.8)",position:"relative"}}>
     {/* Header */}
     <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"calc(14px + env(safe-area-inset-top)) 14px 12px",position:"sticky",top:0,zIndex:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -618,6 +622,7 @@ function App(){
       {filtered.map(f=><FilamentCard key={f.id} fil={f} onEdit={x=>setModal(x)} onDelete={handleDelete}/>)}
     </div>
 
+    </div>
     {modal==="add"&&<FilamentModal onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
     {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} onSavePrinters={p=>{setPrinters(p);savePrinters(p);}}/>}
     {modal==="scanDelete"&&<ScanDeleteModal filaments={filaments} onDelete={id=>setFilaments(f=>f.filter(x=>x.id!==id))} onClose={()=>setModal(null)}/>}
