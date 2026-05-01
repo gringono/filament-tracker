@@ -30,7 +30,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v3.4";
+const VERSION="v3.5";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -252,6 +252,11 @@ function FilamentCard({fil,onEdit,onDelete}){
       ))}
     </div>}
 
+    {/* Notes */}
+    {fil.notes&&<div style={{...mono,color:TEXT_DIM,fontSize:10,borderTop:`1px solid ${BORDER}`,paddingTop:6}}>
+      📋 {fil.notes}
+    </div>}
+
     {/* In Use */}
     {inUse.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
       <div style={{...mono,color:TEXT_DIM,fontSize:9,letterSpacing:"0.1em",marginBottom:2}}>🖨 IN GEBRAUCH</div>
@@ -277,7 +282,7 @@ function FilamentModal({initial,onSave,onClose,printers,onAddPrinter}){
   const [form,setForm]=useState({
     brand:"",material:"PLA",colorName:"",colorHex:"#aaaaaa",
     diameter:1.75,fullWeight:1000,
-    stock:[],inUse:[],
+    stock:[],inUse:[],notes:"",
     ...(initial||{})
   });
   const [scanning,setScanning]=useState(false);
@@ -415,6 +420,11 @@ function FilamentModal({initial,onSave,onClose,printers,onAddPrinter}){
       ))}
       {addBtn("+ Spule in Drucker hinzufügen",addInUse)}
     </div>
+
+    {/* Notes */}
+    <Field label="NOTIZEN (z.B. Drucktemperatur, Besonderheiten)">
+      <textarea style={{...inputStyle,height:72,resize:"none",lineHeight:1.6}} value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Temp: 220-230°C, Hotbed: 60-70°C..."/>
+    </Field>
 
     <button onClick={handleSave} style={{
       background:MINT,color:"#000",border:"none",borderRadius:8,
