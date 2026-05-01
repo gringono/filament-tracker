@@ -30,7 +30,7 @@
 <script type="text/babel">
 const {useState, useEffect, useRef} = React;
 
-const VERSION = "v1.8";
+const VERSION = "v2.0";
 const STORAGE_KEY = "filament_v1";
 const API_KEY_KEY = "filament_apikey";
 const PRINTERS = ["—","Bambu H2C","VCore 4.1","HevOrt"];
@@ -54,26 +54,22 @@ function loadKey(){return localStorage.getItem(API_KEY_KEY)||"";}
 function saveKey(k){localStorage.setItem(API_KEY_KEY,k);}
 
 async function scanLabel(b64, mediaType, mode, apiKey) {
-  const prompt = mode==="add"
-    ? `You are a filament label reader. Extract info from this 3D printer filament label. Return ONLY valid JSON, no markdown, no explanation: {"brand":"","material":"PLA","colorName":"","colorHex":"#aaaaaa","diameter":1.75,"totalWeight":1000,"notes":""}. Diameter default 1.75, totalWeight in grams default 1000.`
-    : `You are a filament label reader. Extract identifying info from this filament label to help find a match. Return ONLY valid JSON: {"brand":"","material":"","colorName":"","colorHex":""}`;
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-    {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        contents:[{parts:[
-          {inline_data:{mime_type:mediaType,data:b64}},
-          {text:prompt}
-        ]}],
-        generationConfig:{temperature:0.1}
-      })
-    }
-  );
+  const sys = mode==="add"
+    ? `Filament label reader. Return ONLY valid JSON, no markdown: {"brand":"","material":"PLA","colorName":"","colorHex":"#aaaaaa","diameter":1.75,"totalWeight":1000,"notes":""}. Diameter default 1.75, totalWeight in grams default 1000.`
+    : `Filament label reader. Return ONLY valid JSON: {"brand":"","material":"","colorName":"","colorHex":""}`;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:"claude-haiku-4-5",max_tokens:500,system:sys,
+      messages:[{role:"user",content:[
+        {type:"image",source:{type:"base64",media_type:mediaType,data:b64}},
+        {type:"text",text:"Extract filament info from this label."}
+      ]}]
+    })
+  });
   const data=await res.json();
   if(data.error) throw new Error(data.error.message);
-  const text=data.candidates?.[0]?.content?.parts?.[0]?.text||"{}";
+  const text=data.content?.map(b=>b.text||"").join("")||"{}";
   return JSON.parse(text.replace(/```json|```/g,"").trim());
 }
 
@@ -251,15 +247,15 @@ function SettingsModal({onClose}){
   function handleSave(){saveKey(key.trim());setSaved(true);setTimeout(()=>setSaved(false),1500);}
   return <Modal title="⚙️ Einstellungen" onClose={onClose}>
     <div style={{...mono,color:TEXT_DIM,fontSize:11,lineHeight:1.7}}>
-      Für den KI-Etikett-Scan wird ein Google Gemini API Key benötigt.<br/>
-      <span style={{color:MINT}}>Kostenlos</span> — kein Kreditkarte nötig.<br/><br/>
-      <span style={{color:TEXT_DIM}}>1. </span><span style={{color:TEXT}}>aistudio.google.com</span> aufrufen<br/>
-      <span style={{color:TEXT_DIM}}>2. </span>Mit Google Account anmelden<br/>
-      <span style={{color:TEXT_DIM}}>3. </span>Links <span style={{color:TEXT}}>"Get API key"</span> → <span style={{color:TEXT}}>"Create API key"</span><br/>
-      <span style={{color:TEXT_DIM}}>4. </span>Key kopieren und hier einfügen
+      Für den KI-Etikett-Scan wird ein Anthropic API Key benötigt.<br/><br/>
+      <span style={{color:TEXT_DIM}}>1. </span><span style={{color:TEXT}}>console.anthropic.com</span> aufrufen<br/>
+      <span style={{color:TEXT_DIM}}>2. </span>Account erstellen + Kreditkarte + $5 Guthaben<br/>
+      <span style={{color:TEXT_DIM}}>3. </span>API Keys → <span style={{color:TEXT}}>"Create Key"</span><br/>
+      <span style={{color:TEXT_DIM}}>4. </span>Key kopieren und hier einfügen<br/><br/>
+      <span style={{color:"#facc15"}}>ℹ️ Gemini Free Tier funktioniert nicht in der EU.</span>
     </div>
-    <Field label="GOOGLE GEMINI API KEY">
-      <input style={inputStyle} type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="AIza..."/>
+    <Field label="ANTHROPIC API KEY">
+      <input style={inputStyle} type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..."/>
     </Field>
     <button onClick={handleSave} style={{
       background:saved?"#1a4020":MINT,color:saved?MINT:"#000",border:saved?`1px solid ${MINT}`:"none",
@@ -323,7 +319,7 @@ function SpoolModal({initial,onSave,onClose}){
   async function handlePhoto(e){
     const file=e.target.files[0];if(!file)return;
     const apiKey=loadKey();
-    if(!apiKey){setScanError("Kein API Key. Bitte in ⚙️ Einstellungen eintragen (kostenlos via aistudio.google.com).");return;}
+    if(!apiKey){setScanError("Kein API Key. Bitte in ⚙️ Einstellungen eintragen.");return;}
     setScanError("");setScanning(true);
     const reader=new FileReader();
     reader.onload=async()=>{
@@ -411,7 +407,7 @@ function ScanDeleteModal({spools,onDelete,onClose}){
   async function handlePhoto(e){
     const file=e.target.files[0];if(!file)return;
     const apiKey=loadKey();
-    if(!apiKey){setScanError("Kein API Key. Bitte in ⚙️ Einstellungen eintragen (kostenlos via aistudio.google.com).");return;}
+    if(!apiKey){setScanError("Kein API Key. Bitte in ⚙️ Einstellungen eintragen.");return;}
     setScanError("");setMatches(null);setScanning(true);
     const reader=new FileReader();
     reader.onload=async()=>{
