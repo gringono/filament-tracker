@@ -400,7 +400,7 @@ function DuplicateModal({existing,onMerge,onNew,onClose}){
 }
 
 // ── Add/Edit Modal ──
-function FilamentModal({initial,onSave,onClose,printers,onAddPrinter}){
+function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
   const fw=initial?.fullWeight||1000;
   const [form,setForm]=useState({
     brand:"",material:"PLA",colorName:"",colorHex:"#aaaaaa",
@@ -553,6 +553,10 @@ function FilamentModal({initial,onSave,onClose,printers,onAddPrinter}){
       background:MINT,color:"#000",border:"none",borderRadius:8,
       padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4
     }}>Speichern</button>
+    {initial?.id&&onDelete&&<button onClick={()=>{if(confirm("Filament löschen?"))onDelete(initial.id);}} style={{
+      background:"#1a0808",color:"#f87171",border:"1px solid #2e1010",borderRadius:8,
+      padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer",...mono,width:"100%"
+    }}>✕ Filament löschen</button>}
   </Modal>;
 }
 
@@ -1076,7 +1080,7 @@ function App(){
     {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} allFilaments={filaments} onImport={(fils,prts)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);setModal(null);}}/>}
     {modal==="scanDelete"&&<ScanDeleteModal filaments={filaments} onDelete={id=>setFilaments(f=>f.filter(x=>x.id!==id))} onClose={()=>setModal(null)}/>}
     {modal&&modal!=="add"&&modal!=="move"&&modal!=="settings"&&modal!=="scanDelete"&&
-      <FilamentModal initial={modal} onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
+      <FilamentModal initial={modal} onSave={handleSave} onDelete={id=>{setFilaments(f=>f.filter(x=>x.id!==id));setModal(null);}} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
   </div>;
 }
 
