@@ -30,7 +30,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v3.6";
+const VERSION="v3.7";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -362,6 +362,35 @@ function FilamentCard({fil,onEdit,onDelete}){
       ))}
     </div>}
   </div>;
+}
+
+
+// ── Duplicate Detection Modal ──
+function DuplicateModal({existing,onMerge,onNew,onClose}){
+  return <Modal onClose={onClose} title="Filament bereits vorhanden">
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:SURFACE2,borderRadius:8}}>
+      <ColorChip hex={existing.colorHex} size={32}/>
+      <div>
+        <div style={{...mono,color:TEXT,fontSize:14,fontWeight:700}}>{existing.brand} {existing.colorName}</div>
+        <div style={{display:"flex",gap:5,marginTop:3}}>
+          <Badge color={MINT}>{existing.material}</Badge>
+          <Badge>{existing.diameter}mm</Badge>
+          <Badge>{existing.fullWeight}g/Spule</Badge>
+        </div>
+      </div>
+    </div>
+    <div style={{...mono,color:TEXT_DIM,fontSize:12,lineHeight:1.6}}>
+      Dieser Filament-Typ ist bereits in deiner Liste. Möchtest du die neue Spule dem bestehenden Eintrag hinzufügen oder einen neuen Eintrag anlegen?
+    </div>
+    <button onClick={onMerge} style={{
+      background:MINT,color:"#000",border:"none",borderRadius:8,
+      padding:"13px 0",fontWeight:700,fontSize:14,cursor:"pointer",...mono,width:"100%"
+    }}>+ Zum bestehenden Eintrag hinzufügen</button>
+    <button onClick={onNew} style={{
+      background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`,borderRadius:8,
+      padding:"12px 0",fontWeight:400,fontSize:13,cursor:"pointer",...mono,width:"100%"
+    }}>Neuen Eintrag anlegen</button>
+  </Modal>;
 }
 
 // ── Add/Edit Modal ──
@@ -720,9 +749,45 @@ function App(){
   useEffect(()=>{savePrinters(printers);},[printers]);
 
   function handleSave(form){
-    if(form.id)setFilaments(f=>f.map(x=>x.id===form.id?form:x));
-    else setFilaments(f=>[...f,{...form,id:genId(),addedAt:Date.now()}]);
-    setModal(null);
+    if(form.id){
+      // Editing existing — just save
+      setFilaments(f=>f.map(x=>x.id===form.id?form:x));
+      setModal(null);
+      return;
+    }
+    // New entry — check for duplicates
+    const match=filaments.find(f=>
+      f.brand?.toLowerCase()===form.brand?.toLowerCase()&&
+      f.material?.toLowerCase()===form.material?.toLowerCase()&&
+      f.colorName?.toLowerCase()===form.colorName?.toLowerCase()
+    );
+    if(match){
+      setDupeCheck({existing:match,newForm:form});
+      setModal(null);
+    } else {
+      setFilaments(f=>[...f,{...form,id:genId(),addedAt:Date.now()}]);
+      setModal(null);
+    }
+  }
+
+  function handleMerge(){
+    if(!dupeCheck)return;
+    const {existing,newForm}=dupeCheck;
+    // Add all stock and inUse from newForm to existing
+    const merged={
+      ...existing,
+      stock:[...(existing.stock||[]),...(newForm.stock||[])],
+      inUse:[...(existing.inUse||[]),...(newForm.inUse||[])],
+    };
+    setFilaments(f=>f.map(x=>x.id===existing.id?merged:x));
+    setDupeCheck(null);
+  }
+
+  function handleForceNew(){
+    if(!dupeCheck)return;
+    const {newForm}=dupeCheck;
+    setFilaments(f=>[...f,{...newForm,id:genId(),addedAt:Date.now()}]);
+    setDupeCheck(null);
   }
   function handleDelete(id){
     if(confirm("Filament löschen?"))setFilaments(f=>f.filter(x=>x.id!==id));
@@ -745,6 +810,7 @@ function App(){
 
   const isMobile=window.innerWidth<=600;
   const [tab,setTab]=useState("cards"); // "cards" | "list"
+  const [dupeCheck,setDupeCheck]=useState(null); // {existing, newForm}
   return <div style={{background:"#050805",minHeight:"100vh",display:"flex",justifyContent:"center"}}>
   <div style={{width:"100%",maxWidth:430,minHeight:"100vh",background:BG,color:TEXT,
     paddingBottom:"calc(80px + env(safe-area-inset-bottom))",
@@ -805,6 +871,12 @@ function App(){
     </div>
 
     </div>
+    {dupeCheck&&<DuplicateModal
+      existing={dupeCheck.existing}
+      onMerge={handleMerge}
+      onNew={handleForceNew}
+      onClose={()=>setDupeCheck(null)}
+    />}
     {modal==="add"&&<FilamentModal onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
     {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} allFilaments={filaments} onImport={(fils,prts)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);setModal(null);}}/>}
     {modal==="scanDelete"&&<ScanDeleteModal filaments={filaments} onDelete={id=>setFilaments(f=>f.filter(x=>x.id!==id))} onClose={()=>setModal(null)}/>}
