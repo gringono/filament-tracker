@@ -27,10 +27,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v3.9";
+const VERSION="v4.0";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -195,20 +196,155 @@ function PrinterSelect({value,onChange,printers}){
 }
 
 // ── Material Combo ──
+function loadCustomMats(){try{return JSON.parse(localStorage.getItem("custom_materials")||"[]");}catch{return[];}}
+function saveCustomMat(m){if(!m||MATERIALS.includes(m))return;const cur=loadCustomMats();if(!cur.includes(m)){localStorage.setItem("custom_materials",JSON.stringify([...cur,m]));}}
+
 function MaterialCombo({value,onChange}){
-  const [custom,setCustom]=useState(!MATERIALS.includes(value));
+  const [custom,setCustom]=useState(!MATERIALS.includes(value)&&!!value);
+  const customMats=loadCustomMats();
+  const allMats=[...MATERIALS,...customMats.filter(m=>!MATERIALS.includes(m))];
   return <div style={{display:"flex",flexDirection:"column",gap:4}}>
     <select style={inputStyle} value={custom?"__custom__":value}
       onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);onChange("");}else{setCustom(false);onChange(e.target.value);}}}>
-      {MATERIALS.map(m=><option key={m}>{m}</option>)}
+      {allMats.map(m=><option key={m}>{m}</option>)}
       <option value="__custom__">✏️ Eigene Eingabe...</option>
     </select>
-    {custom&&<input style={{...inputStyle,borderColor:MINT}} value={value} onChange={e=>onChange(e.target.value)} placeholder="z.B. PLA-CF, PAHT..." autoFocus/>}
+    {custom&&<input style={{...inputStyle,borderColor:MINT}} value={value}
+      onChange={e=>onChange(e.target.value)}
+      onBlur={e=>saveCustomMat(e.target.value)}
+      placeholder="z.B. PLA-CF, PAHT..." autoFocus/>}
   </div>;
 }
 
 
-// ── List View ──
+// ── Location Storage + Combo ──
+function loadCustomLocs(){try{return JSON.parse(localStorage.getItem("custom_locations")||"[]");}catch{return[];}}
+function saveCustomLoc(l){if(!l)return;const cur=loadCustomLocs();if(!cur.includes(l)){localStorage.setItem("custom_locations",JSON.stringify([...cur,l]));}}
+
+function LocationCombo({value,onChange}){
+  const locs=loadCustomLocs();
+  const [custom,setCustom]=useState(locs.length>0&&!locs.includes(value)&&!!value);
+  return <div style={{display:"flex",flexDirection:"column",gap:4}}>
+    {locs.length>0
+      ?<select style={inputStyle} value={custom?"__custom__":value||""}
+          onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);onChange("");}else{setCustom(false);onChange(e.target.value);}}}>
+          <option value="">— Lagerort wählen —</option>
+          {locs.map(l=><option key={l}>{l}</option>)}
+          <option value="__custom__">✏️ Neuer Lagerort...</option>
+        </select>
+      :<input style={inputStyle} value={value} onChange={e=>onChange(e.target.value)}
+          onBlur={e=>saveCustomLoc(e.target.value)} placeholder="Lagerort (z.B. Regal-A)"/>
+    }
+    {custom&&<input style={{...inputStyle,borderColor:MINT}} value={value}
+      onChange={e=>onChange(e.target.value)}
+      onBlur={e=>{saveCustomLoc(e.target.value);}}
+      placeholder="z.B. Regal-A, Box-2..." autoFocus/>}
+  </div>;
+}
+
+// ── QR Scanner Screen ──
+function QRScannerScreen({filaments}){
+  const videoRef=useRef(null);
+  const canvasRef=useRef(null);
+  const rafRef=useRef(null);
+  const [result,setResult]=useState(null);
+  const [scanning,setScanning]=useState(false);
+  const [error,setError]=useState("");
+
+  useEffect(()=>{
+    startCamera();
+    return ()=>stopCamera();
+  },[]);
+
+  async function startCamera(){
+    setError("");setResult(null);
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
+      if(videoRef.current){videoRef.current.srcObject=stream;videoRef.current.play();}
+      setScanning(true);
+      rafRef.current=requestAnimationFrame(tick);
+    }catch(e){setError("Kamera nicht verfügbar: "+e.message);}
+  }
+
+  function stopCamera(){
+    cancelAnimationFrame(rafRef.current);
+    if(videoRef.current?.srcObject){videoRef.current.srcObject.getTracks().forEach(t=>t.stop());}
+    setScanning(false);
+  }
+
+  function tick(){
+    const video=videoRef.current;const canvas=canvasRef.current;
+    if(!video||!canvas||video.readyState!==4){rafRef.current=requestAnimationFrame(tick);return;}
+    const w=video.videoWidth,h=video.videoHeight;
+    canvas.width=w;canvas.height=h;
+    const ctx=canvas.getContext("2d");
+    ctx.drawImage(video,0,0,w,h);
+    const img=ctx.getImageData(0,0,w,h);
+    const code=jsQR(img.data,img.width,img.height);
+    if(code){
+      stopCamera();
+      setResult(code.data.trim());
+    }else{
+      rafRef.current=requestAnimationFrame(tick);
+    }
+  }
+
+  function reset(){setResult(null);startCamera();}
+
+  const matched=result?filaments.filter(f=>
+    f.stock?.some(s=>(s.location||"").toLowerCase()===result.toLowerCase())
+  ):[];
+
+  return <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:12}}>
+    {!result&&<>
+      <div style={{...mono,color:TEXT_DIM,fontSize:11,textAlign:"center"}}>QR-Code am Regal scannen</div>
+      <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:`2px solid ${MINT}`,background:"#000",aspectRatio:"1/1"}}>
+        <video ref={videoRef} style={{width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/>
+        <canvas ref={canvasRef} style={{display:"none"}}/>
+        {scanning&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+          <div style={{width:"55%",height:"55%",border:`2px solid ${MINT}`,borderRadius:8,boxShadow:`0 0 0 9999px rgba(0,0,0,0.45)`}}/>
+        </div>}
+      </div>
+      {error&&<div style={{...mono,color:"#f87171",fontSize:11,textAlign:"center"}}>{error}</div>}
+    </>}
+
+    {result&&<>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#071a0e",borderRadius:8,border:`1px solid ${MINT}`}}>
+        <span style={{fontSize:20}}>📦</span>
+        <div>
+          <div style={{...mono,color:MINT,fontSize:13,fontWeight:700}}>{result}</div>
+          <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{matched.length} Filament-Typ{matched.length!==1?"en":""} gelagert</div>
+        </div>
+      </div>
+
+      {matched.length===0&&<div style={{...mono,color:TEXT_DIM,fontSize:12,textAlign:"center",padding:"20px 0"}}>
+        Keine Spulen für „{result}" gefunden.<br/>
+        <span style={{fontSize:10}}>Lagerort beim Erfassen genau so eintragen.</span>
+      </div>}
+
+      {matched.map(f=>{
+        const spools=f.stock.filter(s=>(s.location||"").toLowerCase()===result.toLowerCase());
+        return <div key={f.id} style={{background:SURFACE2,borderRadius:8,padding:"10px 12px",border:`1px solid ${BORDER}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <ColorChip hex={f.colorHex} size={22}/>
+            <div>
+              <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{f.brand} {f.colorName}</div>
+              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{f.material} · {f.diameter}mm</div>
+            </div>
+          </div>
+          {spools.map(s=>(
+            <div key={s.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderTop:`1px solid ${BORDER}`}}>
+              <span style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule</span>
+              <span style={{...mono,color:s.weight>=(f.fullWeight||1000)?MINT:s.weight<=100?"#f87171":"#facc15",fontSize:11,fontWeight:700}}>{s.weight}g ({calcPct(s.weight,f.fullWeight||1000)}%)</span>
+            </div>
+          ))}
+        </div>;
+      })}
+
+      <button onClick={reset} style={{...mono,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:8,padding:"11px 0",cursor:"pointer",fontSize:12}}>↩ Nochmal scannen</button>
+    </>}
+  </div>;
+}
 function ListView({filaments,onEdit}){
   if(filaments.length===0)return(
     <div style={{textAlign:"center",padding:"40px 0",...mono,color:TEXT_DIM,fontSize:12}}>Keine Filamente vorhanden</div>
@@ -460,9 +596,14 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
   }
 
   const sectionHead={...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.1em",marginBottom:4};
-  const addBtn=(label,fn)=><button onClick={fn} style={{
-    background:"none",border:`1px dashed ${BORDER}`,borderRadius:6,color:TEXT_DIM,
-    padding:"7px 0",cursor:"pointer",fontSize:12,...mono,width:"100%"
+  const addBtn=(label,fn,type="stock")=><button onClick={fn} style={{
+    background:type==="stock"?"#001a08":"#00081a",
+    border:`1px solid ${type==="stock"?"#00ff6a":"#00aaff"}`,
+    borderRadius:6,
+    color:type==="stock"?"#00ff6a":"#00aaff",
+    padding:"10px 0",cursor:"pointer",fontSize:12,...mono,width:"100%",
+    boxShadow:type==="stock"?"0 0 8px rgba(0,255,106,0.25)":"0 0 8px rgba(0,170,255,0.25)",
+    fontWeight:700
   }}>{label}</button>;
 
   return <Modal onClose={onClose} title={initial?.id?"Filament bearbeiten":"Neues Filament"}>
@@ -508,7 +649,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
       {form.stock.map(s=>(
         <div key={s.id} style={{background:SURFACE,borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <input style={{...inputStyle,flex:1}} value={s.location} onChange={e=>updateStock(s.id,"location",e.target.value)} placeholder="Lagerort"/>
+            <div style={{flex:1}}><LocationCombo value={s.location} onChange={v=>updateStock(s.id,"location",v)}/></div>
             <input style={{...inputStyle,width:90}} type="number" value={s.weight} onChange={e=>updateStock(s.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm"/>
             <button onClick={()=>removeStock(s.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>
@@ -519,7 +660,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
           <RemainingBar weight={s.weight} fullWeight={fullW}/>
         </div>
       ))}
-      {addBtn("+ Spule im Lager hinzufügen",addStock)}
+      {addBtn("+ Spule im Lager hinzufügen",addStock,"stock")}
     </div>
 
     {/* In Use */}
@@ -541,7 +682,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
           <RemainingBar weight={u.weight} fullWeight={fullW}/>
         </div>
       ))}
-      {addBtn("+ Spule in Drucker hinzufügen",addInUse)}
+      {addBtn("+ Spule in Drucker hinzufügen",addInUse,"inuse")}
     </div>
 
     {/* Notes */}
@@ -986,6 +1127,7 @@ function App(){
   const [dupeCheck,setDupeCheck]=useState(null);
 
   function goInventory(t){setScreen("inventory");if(t)setTab(t);}
+  function goHome(){setScreen("home");}
 
   const actionBtnsSmall=<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:4}}>
     <button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:8,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>＋ Neu anlegen</button>
@@ -1050,6 +1192,9 @@ function App(){
       {tab==="list"&&<ListView filaments={filaments} onEdit={x=>setModal(x)}/>}
     </div>}
 
+    {/* QR Scanner Screen */}
+    {screen==="qr"&&<QRScannerScreen filaments={filaments}/>}
+
     {/* Bottom Tab Bar */}
     <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,
       background:SURFACE,borderTop:`1px solid ${BORDER}`,display:"flex",zIndex:20,
@@ -1065,6 +1210,10 @@ function App(){
       <button onClick={()=>goInventory("list")} style={{flex:1,padding:"12px 0",background:"none",border:"none",
         color:screen==="inventory"&&tab==="list"?MINT:TEXT_DIM,cursor:"pointer",fontSize:11,...mono,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
         <span style={{fontSize:18}}>☰</span>LISTE
+      </button>
+      <button onClick={()=>setScreen("qr")} style={{flex:1,padding:"12px 0",background:"none",border:"none",
+        color:screen==="qr"?MINT:TEXT_DIM,cursor:"pointer",fontSize:11,...mono,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+        <span style={{fontSize:18}}>▦</span>SCAN
       </button>
     </div>
 
