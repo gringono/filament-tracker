@@ -30,7 +30,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v3.7";
+const VERSION="v3.8";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -550,6 +550,163 @@ function FilamentModal({initial,onSave,onClose,printers,onAddPrinter}){
   </Modal>;
 }
 
+// ── Move Modal ──
+function MoveModal({filaments,onMove,onClose,printers,onAddPrinter}){
+  const [step,setStep]=useState("scan");
+  const [scanning,setScanning]=useState(false);
+  const [scanError,setScanError]=useState("");
+  const [preview,setPreview]=useState(null);
+  const [matches,setMatches]=useState(null);
+  const [showAll,setShowAll]=useState(false);
+  const [selectedFil,setSelectedFil]=useState(null);
+  const [selectedSpool,setSelectedSpool]=useState(null);
+  const [targetPrinter,setTargetPrinter]=useState(printers[0]||"");
+  const [returnWeight,setReturnWeight]=useState("");
+
+  async function handlePhoto(e){
+    const file=e.target.files[0];if(!file)return;
+    const apiKey=loadApiKey();
+    if(!apiKey){setScanError("Kein API Key. Bitte in \u2699\ufe0f eintragen.");return;}
+    setScanError("");setMatches(null);setScanning(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      const b64=reader.result.split(",")[1];
+      setPreview(reader.result);
+      try{
+        const scan=await scanLabel(b64,file.type,"find",apiKey);
+        const scored=filaments.map(f=>({fil:f,score:matchScore(f,scan)}))
+          .filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
+        setMatches(scored);
+        setStep("matches");
+      }catch(err){setScanError("Scan fehlgeschlagen: "+err.message);}
+      setScanning(false);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function selectFil(fil){setSelectedFil(fil);setStep("spools");}
+
+  function handleMoveToUse(spool){
+    setSelectedSpool({spool,direction:"toUse"});
+    setTargetPrinter(printers[0]||"");
+    setStep("confirm");
+  }
+  function handleMoveToStock(spool){
+    setSelectedSpool({spool,direction:"toStock"});
+    setReturnWeight(String(spool.weight));
+    setStep("confirm");
+  }
+  function executeMove(){
+    if(!selectedSpool||!selectedFil)return;
+    const{spool,direction}=selectedSpool;
+    const newPrinterList=[...new Set([...printers,...(direction==="toUse"?[targetPrinter]:[])])].filter(Boolean);
+    onAddPrinter(newPrinterList);
+    onMove(selectedFil.id,spool.id,direction,direction==="toUse"?targetPrinter:parseInt(returnWeight)||0);
+    onClose();
+  }
+
+  const titles={scan:"\u21c4 Filament bewegen",matches:"\u21c4 Filament w\u00e4hlen",spools:"\u21c4 Spule w\u00e4hlen",confirm:"\u21c4 Best\u00e4tigen"};
+
+  return <Modal title={titles[step]} onClose={onClose}>
+    {step==="scan"&&<>
+      <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Scanne das Etikett der Spule die du bewegen m\u00f6chtest.</div>
+      <PhotoButton label="\ud83d\udcf7 Etikett scannen" onChange={handlePhoto} loading={scanning}/>
+      {scanError&&<div style={{color:"#f87171",fontSize:11,...mono}}>{scanError}</div>}
+      {preview&&!scanning&&<img src={preview} alt="" style={{height:46,borderRadius:5,border:`1px solid ${BORDER}`}}/>}
+      <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:10,display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em"}}>ODER MANUELL W\u00c4HLEN</div>
+        {filaments.map(f=>(
+          <button key={f.id} onClick={()=>selectFil(f)} style={{background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:8,padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left"}}>
+            <ColorChip hex={f.colorHex} size={22}/>
+            <div style={{flex:1}}>
+              <div style={{...mono,color:TEXT,fontSize:12,fontWeight:700}}>{f.brand} {f.colorName}</div>
+              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{f.material} \u00b7 Lager: {f.stock?.length||0} \u00b7 Drucker: {f.inUse?.length||0}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </>}
+
+    {step==="matches"&&<>
+      {preview&&<img src={preview} alt="" style={{height:40,borderRadius:5,border:`1px solid ${BORDER}`,marginBottom:4}}/>}
+      <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em"}}>TREFFER</div>
+      {matches.length===0
+        ?<div style={{...mono,color:"#f87171",fontSize:12,textAlign:"center",padding:"12px 0"}}>Kein Treffer &mdash; bitte manuell w\u00e4hlen.</div>
+        :matches.map(({fil})=>(
+          <button key={fil.id} onClick={()=>selectFil(fil)} style={{background:SURFACE2,border:`1px solid ${MINT}`,borderRadius:8,padding:"10px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",marginBottom:4}}>
+            <ColorChip hex={fil.colorHex} size={28}/>
+            <div style={{flex:1}}>
+              <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{fil.brand} {fil.colorName}</div>
+              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{fil.material} \u00b7 Lager: {fil.stock?.length||0} \u00b7 Drucker: {fil.inUse?.length||0}</div>
+            </div>
+          </button>
+        ))
+      }
+      {!showAll&&<button onClick={()=>setShowAll(true)} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:11,cursor:"pointer",paddingTop:4}}>Nicht dabei? Alle anzeigen \u25be</button>}
+      {showAll&&filaments.filter(f=>!matches.some(m=>m.fil.id===f.id)).map(f=>(
+        <button key={f.id} onClick={()=>selectFil(f)} style={{background:"none",border:`1px dashed ${BORDER}`,borderRadius:8,padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",marginBottom:3}}>
+          <ColorChip hex={f.colorHex} size={20}/>
+          <div><div style={{...mono,color:TEXT_DIM,fontSize:12}}>{f.brand} {f.colorName} \u00b7 {f.material}</div></div>
+        </button>
+      ))}
+    </>}
+
+    {step==="spools"&&selectedFil&&<>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:SURFACE2,borderRadius:8}}>
+        <ColorChip hex={selectedFil.colorHex} size={28}/>
+        <div>
+          <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{selectedFil.brand} {selectedFil.colorName}</div>
+          <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{selectedFil.material}</div>
+        </div>
+      </div>
+      {(selectedFil.stock?.length||0)===0&&(selectedFil.inUse?.length||0)===0&&
+        <div style={{...mono,color:"#f87171",fontSize:12,textAlign:"center",padding:"16px 0"}}>Keine Spulen vorhanden.</div>}
+      {(selectedFil.stock?.length||0)>0&&<>
+        <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em"}}>LAGER \u2192 DRUCKER</div>
+        {selectedFil.stock.map(s=>(
+          <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#071a0e",borderRadius:6,border:"1px solid #0e3018"}}>
+            <div style={{flex:1}}>
+              <div style={{...mono,color:MINT,fontSize:12}}>{s.location||"Lager"}</div>
+              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{s.weight}g ({calcPct(s.weight,selectedFil.fullWeight||1000)}%)</div>
+            </div>
+            <button onClick={()=>handleMoveToUse(s)} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:6,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>\u2192 Drucker</button>
+          </div>
+        ))}
+      </>}
+      {(selectedFil.inUse?.length||0)>0&&<>
+        <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em",marginTop:4}}>DRUCKER \u2192 LAGER</div>
+        {selectedFil.inUse.map(u=>(
+          <div key={u.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#030d1a",borderRadius:6,border:"1px solid #0a1e30"}}>
+            <div style={{flex:1}}>
+              <div style={{...mono,color:"#60a5fa",fontSize:12}}>{u.printer}</div>
+              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{u.weight}g ({calcPct(u.weight,selectedFil.fullWeight||1000)}%)</div>
+            </div>
+            <button onClick={()=>handleMoveToStock(u)} style={{...mono,background:"#60a5fa",color:"#000",border:"none",borderRadius:6,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>\u2192 Lager</button>
+          </div>
+        ))}
+      </>}
+    </>}
+
+    {step==="confirm"&&selectedSpool&&selectedFil&&<>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:SURFACE2,borderRadius:8}}>
+        <ColorChip hex={selectedFil.colorHex} size={26}/>
+        <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{selectedFil.brand} {selectedFil.colorName}</div>
+      </div>
+      {selectedSpool.direction==="toUse"&&<>
+        <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule ({selectedSpool.spool.weight}g) aus <span style={{color:MINT}}>{selectedSpool.spool.location||"Lager"}</span> &rarr; welcher Drucker?</div>
+        <Field label="DRUCKER"><PrinterSelect value={targetPrinter} onChange={v=>setTargetPrinter(v)} printers={printers}/></Field>
+      </>}
+      {selectedSpool.direction==="toStock"&&<>
+        <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule von <span style={{color:"#60a5fa"}}>{selectedSpool.spool.printer}</span> &rarr; Lager. Aktuelles Gewicht?</div>
+        <Field label="GEWICHT (g)"><input style={inputStyle} type="number" value={returnWeight} onChange={e=>setReturnWeight(e.target.value)} autoFocus/></Field>
+      </>}
+      <button onClick={executeMove} style={{background:MINT,color:"#000",border:"none",borderRadius:8,padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4}}>
+        {selectedSpool.direction==="toUse"?"\u2192 In Drucker einlegen":"\u2192 Ins Lager zur\u00fcck"}
+      </button>
+    </>}
+  </Modal>;
+}
+
 // ── Scan Delete Modal ──
 function ScanDeleteModal({filaments,onDelete,onClose}){
   const [scanning,setScanning]=useState(false);
@@ -789,6 +946,21 @@ function App(){
     setFilaments(f=>[...f,{...newForm,id:genId(),addedAt:Date.now()}]);
     setDupeCheck(null);
   }
+  function handleMove(filId,spoolId,direction,data){
+    setFilaments(f=>f.map(fil=>{
+      if(fil.id!==filId)return fil;
+      if(direction==="toUse"){
+        const spool=fil.stock.find(s=>s.id===spoolId);
+        if(!spool)return fil;
+        return {...fil,stock:fil.stock.filter(s=>s.id!==spoolId),inUse:[...fil.inUse,{id:spool.id,printer:data,weight:spool.weight}]};
+      }else{
+        const spool=fil.inUse.find(u=>u.id===spoolId);
+        if(!spool)return fil;
+        return {...fil,inUse:fil.inUse.filter(u=>u.id!==spoolId),stock:[...fil.stock,{id:spool.id,location:"Lager",weight:data}]};
+      }
+    }));
+  }
+
   function handleDelete(id){
     if(confirm("Filament löschen?"))setFilaments(f=>f.filter(x=>x.id!==id));
   }
@@ -829,12 +1001,21 @@ function App(){
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <button onClick={()=>setModal("settings")} style={{background:"none",border:"none",color:TEXT_DIM,fontSize:18,cursor:"pointer",padding:"4px 6px"}}>⚙️</button>
           {total>0&&<button onClick={()=>setModal("scanDelete")} style={{...mono,background:"#180a0a",color:"#f87171",border:"1px solid #2e1010",borderRadius:8,padding:"8px 12px",fontSize:12,cursor:"pointer"}}>🔍</button>}
-          {total>0&&<button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:8,padding:"9px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Neu</button>}
         </div>
       </div>
     </div>
 
     <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+      {/* Home action buttons — always visible */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:2}}>
+        <button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:10,padding:"14px 0",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <span style={{fontSize:20}}>＋</span>Neu anlegen
+        </button>
+        <button onClick={()=>{if(total===0){alert("Erst Filament anlegen.");return;}setModal("move");}} style={{...mono,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:10,padding:"14px 0",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <span style={{fontSize:20}}>⇄</span>Bewegen
+        </button>
+      </div>
+
       {total>0&&<>
         <input style={{...inputStyle,boxSizing:"border-box"}} placeholder="Suche..." value={search} onChange={e=>setSearch(e.target.value)}/>
         <select style={inputStyle} value={filterMat} onChange={e=>setFilterMat(e.target.value)}>
@@ -842,11 +1023,10 @@ function App(){
         </select>
       </>}
 
-      {total===0&&<div style={{textAlign:"center",padding:"24px 10px 20px",marginTop:4}}>
+      {total===0&&<div style={{textAlign:"center",padding:"20px 10px 10px",marginTop:4}}>
         <NeonIllustration/>
-        <div style={{...mono,fontSize:15,color:MINT,marginTop:18,fontWeight:700}}>Was liegt da eigentlich rum?</div>
+        <div style={{...mono,fontSize:15,color:MINT,marginTop:14,fontWeight:700}}>Was liegt da eigentlich rum?</div>
         <div style={{...mono,fontSize:11,color:TEXT_DIM,marginTop:6,lineHeight:1.7}}>Keine Ahnung welches Filament du hast?<br/>Genau dafür ist das hier.</div>
-        <button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:8,padding:"12px 28px",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:20}}>+ Filament erfassen</button>
       </div>}
 
       {tab==="cards"&&<>
@@ -878,9 +1058,10 @@ function App(){
       onClose={()=>setDupeCheck(null)}
     />}
     {modal==="add"&&<FilamentModal onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
+    {modal==="move"&&<MoveModal filaments={filaments} onMove={handleMove} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
     {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} allFilaments={filaments} onImport={(fils,prts)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);setModal(null);}}/>}
     {modal==="scanDelete"&&<ScanDeleteModal filaments={filaments} onDelete={id=>setFilaments(f=>f.filter(x=>x.id!==id))} onClose={()=>setModal(null)}/>}
-    {modal&&modal!=="add"&&modal!=="settings"&&modal!=="scanDelete"&&
+    {modal&&modal!=="add"&&modal!=="move"&&modal!=="settings"&&modal!=="scanDelete"&&
       <FilamentModal initial={modal} onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
   </div>;
 }
