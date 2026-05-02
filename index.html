@@ -648,17 +648,17 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
     </div>
 
     {/* Stock */}
-    <div style={{background:SURFACE2,borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
-      <div style={sectionHead}>📦 LAGER ({form.stock.length} Spule{form.stock.length!==1?"n":""})</div>
+    <div style={{background:"#0a2010",border:"2px solid #1a5c2a",borderRadius:10,padding:"12px",display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{...mono,color:"#4ade80",fontSize:11,letterSpacing:"0.1em",fontWeight:700,marginBottom:2}}>📦 LAGER ({form.stock.length} Spule{form.stock.length!==1?"n":""})</div>
       {form.stock.map(s=>(
-        <div key={s.id} style={{background:SURFACE,borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
+        <div key={s.id} style={{background:"#061209",border:"1px solid #1a5c2a",borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <div style={{flex:1}}><LocationCombo value={s.location} onChange={v=>updateStock(s.id,"location",v)}/></div>
             <input style={{...inputStyle,width:90}} type="number" value={s.weight} onChange={e=>updateStock(s.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm"/>
             <button onClick={()=>removeStock(s.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>
           <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={{...mono,fontSize:10,color:TEXT_DIM}}>{calcPct(s.weight,fullW)}%</span>
+            <span style={{...mono,fontSize:10,color:"#4ade80"}}>{calcPct(s.weight,fullW)}%</span>
             <button onClick={()=>updateStock(s.id,"weight",form.fullWeight)} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:10,cursor:"pointer",padding:0}}>→ voll ({form.fullWeight}g)</button>
           </div>
           <RemainingBar weight={s.weight} fullWeight={fullW}/>
@@ -668,10 +668,10 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
     </div>
 
     {/* In Use */}
-    <div style={{background:SURFACE2,borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
-      <div style={sectionHead}><Icon3D color={TEXT_DIM} size={11}/>IN GEBRAUCH ({form.inUse.length} Spule{form.inUse.length!==1?"n":""})</div>
+    <div style={{background:"#061428",border:"2px solid #1a3f6e",borderRadius:10,padding:"12px",display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{...mono,color:"#60a5fa",fontSize:11,letterSpacing:"0.1em",fontWeight:700,marginBottom:2}}><Icon3D color="#60a5fa" size={12}/>IN GEBRAUCH ({form.inUse.length} Spule{form.inUse.length!==1?"n":""})</div>
       {form.inUse.map(u=>(
-        <div key={u.id} style={{background:SURFACE,borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
+        <div key={u.id} style={{background:"#030a16",border:"1px solid #1a3f6e",borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <div style={{flex:1}}>
               <PrinterSelect value={u.printer} onChange={v=>updateInUse(u.id,"printer",v)} printers={printers}/>
@@ -680,7 +680,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
             <button onClick={()=>removeInUse(u.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>
           <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={{...mono,fontSize:10,color:TEXT_DIM}}>{calcPct(u.weight,fullW)}%</span>
+            <span style={{...mono,fontSize:10,color:"#60a5fa"}}>{calcPct(u.weight,fullW)}%</span>
             <button onClick={()=>updateInUse(u.id,"weight",form.fullWeight)} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:10,cursor:"pointer",padding:0}}>→ voll ({form.fullWeight}g)</button>
           </div>
           <RemainingBar weight={u.weight} fullWeight={fullW}/>
