@@ -27,7 +27,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
@@ -244,52 +244,59 @@ function LocationCombo({value,onChange}){
 
 // ── QR Scanner Screen ──
 function QRScannerScreen({filaments}){
-  const videoRef=useRef(null);
-  const canvasRef=useRef(null);
-  const rafRef=useRef(null);
   const [result,setResult]=useState(null);
-  const [scanning,setScanning]=useState(false);
   const [error,setError]=useState("");
+  const [status,setStatus]=useState("Wird gestartet...");
+  const scannerRef=useRef(null);
+  const divId="qr-reader-filament";
 
   useEffect(()=>{
-    startCamera();
-    return ()=>stopCamera();
+    startScanner();
+    return ()=>stopScanner();
   },[]);
 
-  async function startCamera(){
-    setError("");setResult(null);
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
-      if(videoRef.current){videoRef.current.srcObject=stream;videoRef.current.play();}
-      setScanning(true);
-      rafRef.current=requestAnimationFrame(tick);
-    }catch(e){setError("Kamera nicht verfügbar: "+e.message);}
-  }
-
-  function stopCamera(){
-    cancelAnimationFrame(rafRef.current);
-    if(videoRef.current?.srcObject){videoRef.current.srcObject.getTracks().forEach(t=>t.stop());}
-    setScanning(false);
-  }
-
-  function tick(){
-    const video=videoRef.current;const canvas=canvasRef.current;
-    if(!video||!canvas||video.readyState!==4){rafRef.current=requestAnimationFrame(tick);return;}
-    const w=video.videoWidth,h=video.videoHeight;
-    canvas.width=w;canvas.height=h;
-    const ctx=canvas.getContext("2d");
-    ctx.drawImage(video,0,0,w,h);
-    const img=ctx.getImageData(0,0,w,h);
-    const code=jsQR(img.data,img.width,img.height);
-    if(code){
-      stopCamera();
-      setResult(code.data.trim());
+  function startScanner(){
+    setError("");setResult(null);setStatus("Kamera wird geöffnet...");
+    if(scannerRef.current){
+      scannerRef.current.stop().catch(()=>{}).finally(()=>{
+        scannerRef.current.clear();
+        scannerRef.current=null;
+        document.getElementById(divId).innerHTML="";
+        initScanner();
+      });
     }else{
-      rafRef.current=requestAnimationFrame(tick);
+      initScanner();
     }
   }
 
-  function reset(){setResult(null);startCamera();}
+  function initScanner(){
+    try{
+      const scanner=new Html5Qrcode(divId);
+      scannerRef.current=scanner;
+      scanner.start(
+        {facingMode:"environment"},
+        {fps:10,qrbox:{width:250,height:250},aspectRatio:1.0},
+        (text)=>{
+          stopScanner();
+          setResult(text.trim());
+        },
+        ()=>{}
+      ).then(()=>{
+        setStatus("QR-Code in den Rahmen halten...");
+      }).catch(e=>{
+        setError("Kamerazugriff verweigert: "+e);
+      });
+    }catch(e){setError("Fehler: "+e.message);}
+  }
+
+  function stopScanner(){
+    if(scannerRef.current){
+      scannerRef.current.stop().catch(()=>{}).finally(()=>{
+        scannerRef.current.clear();
+        scannerRef.current=null;
+      });
+    }
+  }
 
   const matched=result?filaments.filter(f=>
     f.stock?.some(s=>(s.location||"").toLowerCase()===result.toLowerCase())
@@ -298,14 +305,11 @@ function QRScannerScreen({filaments}){
   return <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:12}}>
     {!result&&<>
       <div style={{...mono,color:TEXT_DIM,fontSize:11,textAlign:"center"}}>QR-Code am Regal scannen</div>
-      <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:`2px solid ${MINT}`,background:"#000",aspectRatio:"1/1"}}>
-        <video ref={videoRef} style={{width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/>
-        <canvas ref={canvasRef} style={{display:"none"}}/>
-        {scanning&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-          <div style={{width:"55%",height:"55%",border:`2px solid ${MINT}`,borderRadius:8,boxShadow:`0 0 0 9999px rgba(0,0,0,0.45)`}}/>
-        </div>}
-      </div>
-      {error&&<div style={{...mono,color:"#f87171",fontSize:11,textAlign:"center"}}>{error}</div>}
+      <div id={divId} style={{borderRadius:10,overflow:"hidden",border:`2px solid ${MINT}`,background:"#000"}}/>
+      {error
+        ?<div style={{...mono,color:"#f87171",fontSize:11,textAlign:"center"}}>{error}</div>
+        :<div style={{...mono,color:TEXT_DIM,fontSize:10,textAlign:"center"}}>{status}</div>
+      }
     </>}
 
     {result&&<>
@@ -341,7 +345,7 @@ function QRScannerScreen({filaments}){
         </div>;
       })}
 
-      <button onClick={reset} style={{...mono,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:8,padding:"11px 0",cursor:"pointer",fontSize:12}}>↩ Nochmal scannen</button>
+      <button onClick={startScanner} style={{...mono,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:8,padding:"11px 0",cursor:"pointer",fontSize:12}}>↩ Nochmal scannen</button>
     </>}
   </div>;
 }
