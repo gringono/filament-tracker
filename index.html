@@ -31,7 +31,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v4.2";
+const VERSION="v4.3";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -88,9 +88,10 @@ function gramColor(w,full){
 
 // ── AI Scan ──
 async function scanLabel(b64,mediaType,mode,apiKey){
+  const multiColorTerms="Dual Color,Dual Colour,Bicolor,Two-Color,2-Color,Silk Dual,Tri Color,Tri Colour,Three-Color,3-Color,Tricolor,Rainbow,Multicolor,Multi-Color,Gradient,Galaxy,Marble,Silk Rainbow,Chameleon";
   const sys=mode==="add"
-    ?`Filament label reader. Return ONLY valid JSON no markdown: {"brand":"","material":"PLA","colorName":"","colorHex":"#aaaaaa","diameter":1.75,"fullWeight":1000,"notes":""}. fullWeight in grams default 1000.`
-    :`Filament label reader. Return ONLY valid JSON: {"brand":"","material":"","colorName":"","colorHex":""}`;
+    ?`Filament label reader. Return ONLY valid JSON no markdown: {"brand":"","material":"PLA","colorName":"","colorHex":"#aaaaaa","diameter":1.75,"fullWeight":1000,"notes":""}. fullWeight in grams default 1000. IMPORTANT: If the label contains any multi-color indicator (${multiColorTerms}), set colorHex to an array of 2-3 hex colors (e.g. ["#ff0000","#0000ff"]) extracted or estimated from the label visuals. For single-color filaments, colorHex remains a single string.`
+    :`Filament label reader. Return ONLY valid JSON: {"brand":"","material":"","colorName":"","colorHex":""}. If multi-color filament (${multiColorTerms}), set colorHex to array of 2-3 hex strings.`;
   const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
@@ -115,7 +116,9 @@ function matchScore(fil,scan){
   if(scan.colorHex&&fil.colorHex){
     try{
       const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
-      const [r1,g1,b1]=p(scan.colorHex),[r2,g2,b2]=p(fil.colorHex);
+      const h1=Array.isArray(scan.colorHex)?scan.colorHex[0]:scan.colorHex;
+      const h2=Array.isArray(fil.colorHex)?fil.colorHex[0]:fil.colorHex;
+      const [r1,g1,b1]=p(h1),[r2,g2,b2]=p(h2);
       if(Math.sqrt((r1-r2)**2+(g1-g2)**2+(b1-b2)**2)<60)s+=1;
     }catch{}
   }
@@ -127,8 +130,20 @@ const inputStyle={...mono,background:SURFACE,border:`1px solid ${BORDER}`,border
   color:TEXT,padding:"8px 10px",fontSize:13,width:"100%",boxSizing:"border-box",outline:"none",WebkitAppearance:"none"};
 const labelCss={...mono,color:TEXT_DIM,fontSize:10,marginBottom:3,display:"block",letterSpacing:"0.08em"};
 
+function colorBg(hex){
+  if(Array.isArray(hex)&&hex.length>1){
+    const stops=hex.join(", ");
+    return `linear-gradient(135deg, ${stops})`;
+  }
+  const c=Array.isArray(hex)?hex[0]:hex;
+  return c||"#333";
+}
 function ColorChip({hex,size=28}){
-  return <div style={{width:size,height:size,borderRadius:4,background:hex||"#333",border:`1px solid rgba(134,239,172,0.15)`,flexShrink:0}}/>;
+  const bg=colorBg(hex);
+  const isGrad=Array.isArray(hex)&&hex.length>1;
+  return <div style={{width:size,height:size,borderRadius:4,background:bg,border:`1px solid rgba(134,239,172,0.15)`,flexShrink:0,position:"relative"}}>
+    {isGrad&&<div style={{position:"absolute",top:1,right:2,fontSize:size>20?7:6,lineHeight:1,color:"rgba(255,255,255,0.6)"}}>◈</div>}
+  </div>;
 }
 function RemainingBar({weight,fullWeight}){
   const pct=calcPct(weight,fullWeight);
@@ -314,6 +329,8 @@ function QRScannerScreen({filaments}){
     </>}
 
     {result&&<>
+      <button onClick={startScanner} style={{...mono,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:8,padding:"11px 0",cursor:"pointer",fontSize:12,width:"100%"}}>↩ Nochmal scannen</button>
+
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#071a0e",borderRadius:8,border:`1px solid ${MINT}`}}>
         <span style={{fontSize:20}}>📦</span>
         <div>
@@ -345,8 +362,6 @@ function QRScannerScreen({filaments}){
           ))}
         </div>;
       })}
-
-      <button onClick={startScanner} style={{...mono,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:8,padding:"11px 0",cursor:"pointer",fontSize:12}}>↩ Nochmal scannen</button>
     </>}
   </div>;
 }
@@ -420,7 +435,7 @@ function ListView({filaments,onEdit}){
             <div key={i} onClick={()=>onEdit&&onEdit(row.fil)}
               style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",background:rowBg[row.type],borderRadius:5,border:"1px solid "+rowBorder[row.type],cursor:"pointer"}}>
               <span style={{color:rowColor[row.type],fontSize:11,width:12,flexShrink:0}}>{rowIcon[row.type]}</span>
-              <div style={{width:12,height:12,borderRadius:2,background:row.colorHex||"#555",flexShrink:0,border:"1px solid rgba(255,255,255,0.1)"}}/>
+              <div style={{width:12,height:12,borderRadius:2,background:Array.isArray(row.colorHex)&&row.colorHex.length>1?`linear-gradient(135deg,${row.colorHex.join(",")})`:((Array.isArray(row.colorHex)?row.colorHex[0]:row.colorHex)||"#555"),flexShrink:0,border:"1px solid rgba(255,255,255,0.1)"}}/>
               <span style={{...mono,color:TEXT,fontSize:11,width:72,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.brand}</span>
               <span style={{...mono,color:TEXT_DIM,fontSize:11,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.colorName}</span>
               <span style={{...mono,color:TEXT_DIM,fontSize:11,width:60,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right"}}>{row.loc}</span>
@@ -657,11 +672,24 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Field label="MATERIAL"><MaterialCombo value={form.material} onChange={v=>set("material",v)}/></Field>
         <Field label="FARBE (HEX)">
-          <div style={{display:"flex",gap:7,alignItems:"center"}}>
-            <input type="color" value={form.colorHex} onChange={e=>set("colorHex",e.target.value)}
-              style={{width:36,height:36,border:`1px solid ${BORDER}`,borderRadius:6,background:SURFACE,cursor:"pointer",padding:2,flexShrink:0}}/>
-            <input style={{...inputStyle,flex:1}} value={form.colorHex} onChange={e=>set("colorHex",e.target.value)}/>
-          </div>
+          {(()=>{
+            const colors=Array.isArray(form.colorHex)?form.colorHex:[form.colorHex||"#aaaaaa"];
+            const setColor=(i,v)=>{const arr=[...colors];arr[i]=v;set("colorHex",arr.length===1?arr[0]:arr);};
+            const addColor=()=>{if(colors.length<3)set("colorHex",[...colors,"#aaaaaa"]);};
+            const removeColor=(i)=>{const arr=colors.filter((_,j)=>j!==i);set("colorHex",arr.length===1?arr[0]:arr);};
+            return <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {colors.map((c,i)=>(
+                <div key={i} style={{display:"flex",gap:5,alignItems:"center"}}>
+                  <input type="color" value={c} onChange={e=>setColor(i,e.target.value)}
+                    style={{width:32,height:32,border:`1px solid ${BORDER}`,borderRadius:5,background:SURFACE,cursor:"pointer",padding:2,flexShrink:0}}/>
+                  <input style={{...inputStyle,flex:1,fontSize:11}} value={c} onChange={e=>setColor(i,e.target.value)}/>
+                  {colors.length>1&&<button onClick={removeColor.bind(null,i)} style={{...mono,background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:14,padding:"0 2px",flexShrink:0}}>×</button>}
+                </div>
+              ))}
+              {colors.length<3&&<button onClick={addColor} style={{...mono,fontSize:9,color:TEXT_DIM,background:"none",border:`1px dashed ${BORDER}`,borderRadius:4,padding:"3px 0",cursor:"pointer"}}>+ Farbe</button>}
+              {colors.length>1&&<div style={{height:10,borderRadius:3,background:colorBg(colors),marginTop:2}}/>}
+            </div>;
+          })()}
         </Field>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
