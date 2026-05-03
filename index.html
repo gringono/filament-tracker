@@ -393,11 +393,12 @@ function ListView({filaments,onEdit}){
     grouped=[{label:null,rows}];
   } else if(sortMode==="location"){
     const groups={};
-    allRows.forEach(r=>{const k=r.type==="inuse"?r.loc:"Lager";if(!groups[k])groups[k]=[];groups[k].push(r);});
-    grouped=Object.entries(groups).sort((a,b)=>{
-      if(a[0]==="Lager")return -1;if(b[0]==="Lager")return 1;
-      return a[0].localeCompare(b[0]);
-    }).map(([label,rows])=>({label,rows}));
+    allRows.forEach(r=>{const k=r.loc;if(!groups[k])groups[k]=[];groups[k].push(r);});
+    const inuseKeys=allRows.filter(r=>r.type==="inuse").map(r=>r.loc);
+    const isStorage=key=>!inuseKeys.includes(key)||allRows.some(r=>r.loc===key&&r.type!=="inuse");
+    const storageKeys=Object.keys(groups).filter(k=>allRows.some(r=>r.loc===k&&r.type!=="inuse")).sort((a,b)=>a.localeCompare(b));
+    const printerKeys=Object.keys(groups).filter(k=>allRows.every(r=>r.loc!==k||r.type==="inuse")).sort((a,b)=>a.localeCompare(b));
+    grouped=[...storageKeys,...printerKeys].map(label=>({label,rows:groups[label]}));
   }
 
   const rowColor={full:MINT,partial:"#facc15",inuse:"#60a5fa"};
