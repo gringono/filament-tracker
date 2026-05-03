@@ -1114,6 +1114,7 @@ function App(){
   }
 
   const total=filaments.length;
+  const uniqueMats=new Set(filaments.map(f=>f.material)).size;
   const totalSpools=filaments.reduce((a,f)=>(f.stock?.length||0)+(f.inUse?.length||0)+a,0);
   const lowCount=filaments.filter(f=>[...(f.stock||[]),...(f.inUse||[])].some(s=>s.weight<=100)).length;
   const inUseCount=filaments.reduce((a,f)=>a+(f.inUse?.length||0),0);
@@ -1148,7 +1149,7 @@ function App(){
         <div>
           <div style={{fontSize:17,fontWeight:700,...mono,color:MINT}}>🧵 FILAMENT <span style={{fontSize:9,color:TEXT_DIM,fontWeight:400}}>{VERSION}</span> <span style={{fontSize:9,color:TEXT_MUTED,fontWeight:400}}>by MeltingHero</span></div>
           <div style={{...mono,fontSize:10,color:TEXT_DIM,marginTop:2}}>
-            {total} Typen · {totalSpools} Spulen
+            {uniqueMats} Materialien · {totalSpools} Spulen
             {lowCount>0&&<span style={{color:"#f87171"}}> · {lowCount} fast leer</span>}
             {inUseCount>0&&<span style={{color:MINT}}> · {inUseCount} in Drucker</span>}
           </div>
