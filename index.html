@@ -389,7 +389,7 @@ function ListView({filaments,onEdit}){
     allRows.forEach(r=>{if(!groups[r.mat])groups[r.mat]=[];groups[r.mat].push(r);});
     grouped=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0])).map(([label,rows])=>({label,rows}));
   } else if(sortMode==="low"){
-    const rows=[...allRows].sort((a,b)=>a.weight-b.weight);
+    const rows=[...allRows].sort((a,b)=>(a.weight/(a.fil.fullWeight||1000))-(b.weight/(b.fil.fullWeight||1000)));
     grouped=[{label:null,rows}];
   } else if(sortMode==="location"){
     const groups={};
