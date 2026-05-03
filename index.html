@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <meta name="apple-mobile-web-app-title" content="Filament"/>
+  <meta name="apple-mobile-web-app-title" content="Filament-Tracker"/>
   <meta name="theme-color" content="#86efac"/>
   <link rel="manifest" href="./manifest.json"/>
   <link rel="apple-touch-icon" href="./icon-192.png"/>
-  <title>Filament Tracker</title>
+  <title>Filament-Tracker</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -31,7 +31,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v4.0";
+const VERSION="v4.1";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1147,7 +1147,7 @@ function App(){
     <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"calc(14px + env(safe-area-inset-top)) 14px 12px",position:"sticky",top:0,zIndex:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:17,fontWeight:700,...mono,color:MINT}}>🧵 FILAMENT <span style={{fontSize:9,color:TEXT_DIM,fontWeight:400}}>{VERSION}</span> <span style={{fontSize:9,color:TEXT_MUTED,fontWeight:400}}>by MeltingHero</span></div>
+          <div style={{fontSize:17,fontWeight:700,...mono,color:MINT}}>🧵 FILAMENT-TRACKER <span style={{fontSize:9,color:TEXT_DIM,fontWeight:400}}>{VERSION}</span> <span style={{fontSize:9,color:TEXT_MUTED,fontWeight:400}}>by MeltingHero</span></div>
           <div style={{...mono,fontSize:10,color:TEXT_DIM,marginTop:2}}>
             {uniqueMats} Materialien · {totalSpools} Spulen
             {lowCount>0&&<span style={{color:"#f87171"}}> · {lowCount} fast leer</span>}
@@ -1164,8 +1164,15 @@ function App(){
     {/* Home Screen */}
     {screen==="home"&&<div style={{padding:"20px 14px",display:"flex",flexDirection:"column",alignItems:"center"}}>
       <NeonIllustration/>
-      {total>0&&<div style={{...mono,fontSize:11,color:TEXT_DIM,marginTop:4,marginBottom:16,textAlign:"center"}}>
-        {total} Typen · {totalSpools} Spulen{inUseCount>0&&<span style={{color:MINT}}> · {inUseCount} in Drucker</span>}
+      {total>0&&<div style={{...mono,fontSize:11,color:TEXT_DIM,marginTop:4,marginBottom:16,textAlign:"center",lineHeight:1.8}}>
+        <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:"4px 10px",marginBottom:4}}>
+          {[...new Map(filaments.map(f=>[f.material,f.material])).keys()].map(mat=>{
+            const count=filaments.filter(f=>f.material===mat).reduce((a,f)=>(f.stock?.length||0)+(f.inUse?.length||0)+a,0);
+            return <span key={mat} style={{color:TEXT_DIM}}><span style={{color:MINT}}>{mat}</span>{count>0&&<span style={{color:TEXT_MUTED}}> ×{count}</span>}</span>;
+          })}
+        </div>
+        <span>{totalSpools} Spulen</span>
+        {inUseCount>0&&<span style={{color:MINT}}> · {inUseCount} in Drucker</span>}
       </div>}
       {total===0&&<div style={{textAlign:"center",marginTop:8,marginBottom:16}}>
         <div style={{...mono,fontSize:15,color:MINT,fontWeight:700}}>Was liegt da eigentlich rum?</div>
