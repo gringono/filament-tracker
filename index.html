@@ -261,11 +261,12 @@ function QRScannerScreen({filaments}){
       scannerRef.current.stop().catch(()=>{}).finally(()=>{
         scannerRef.current.clear();
         scannerRef.current=null;
-        document.getElementById(divId).innerHTML="";
-        initScanner();
+        const el=document.getElementById(divId);
+        if(el)el.innerHTML="";
+        setTimeout(initScanner,80);
       });
     }else{
-      initScanner();
+      setTimeout(initScanner,80);
     }
   }
 
@@ -286,7 +287,7 @@ function QRScannerScreen({filaments}){
       }).catch(e=>{
         setError("Kamerazugriff verweigert: "+e);
       });
-    }catch(e){setError("Fehler: "+e.message);}
+    }catch(e){setError("Fehler: "+(e&&e.message?e.message:String(e)));}
   }
 
   function stopScanner(){
