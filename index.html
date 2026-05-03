@@ -1168,7 +1168,7 @@ function App(){
         <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:"4px 10px",marginBottom:4}}>
           {[...new Map(filaments.map(f=>[f.material,f.material])).keys()].map(mat=>{
             const count=filaments.filter(f=>f.material===mat).reduce((a,f)=>(f.stock?.length||0)+(f.inUse?.length||0)+a,0);
-            return <span key={mat} style={{color:TEXT_DIM}}><span style={{color:MINT}}>{mat}</span>{count>0&&<span style={{color:TEXT_MUTED}}> ×{count}</span>}</span>;
+            return <span key={mat} style={{color:TEXT_DIM}}><span style={{color:MINT}}>{mat}</span>{count>0&&<span style={{color:"#f472b6"}}> ×{count}</span>}</span>;
           })}
         </div>
         <span>{totalSpools} Spulen</span>
