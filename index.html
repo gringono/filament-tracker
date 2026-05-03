@@ -31,7 +31,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v4.1";
+const VERSION="v4.2";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -349,55 +349,80 @@ function QRScannerScreen({filaments}){
     </>}
   </div>;
 }
+const SORT_MODES=[
+  {key:"material",label:"↕ Material"},
+  {key:"low",label:"↕ Fast leer"},
+  {key:"location",label:"↕ Lager/Drucker"},
+];
+
 function ListView({filaments,onEdit}){
+  const [sortIdx,setSortIdx]=React.useState(0);
+
   if(filaments.length===0)return(
     <div style={{textAlign:"center",padding:"40px 0",...mono,color:TEXT_DIM,fontSize:12}}>Keine Filamente vorhanden</div>
   );
 
-  const groups={};
+  const sortMode=SORT_MODES[sortIdx].key;
+  const allRows=[];
   filaments.forEach(fil=>{
     const mat=fil.material||"?";
-    if(!groups[mat])groups[mat]=[];
     const fw=fil.fullWeight||1000;
-
     const fullByLoc={};
     (fil.stock||[]).filter(s=>s.weight>=fw).forEach(s=>{
       const loc=s.location||"Lager";
       fullByLoc[loc]=(fullByLoc[loc]||0)+1;
     });
     Object.entries(fullByLoc).forEach(([loc,cnt])=>{
-      groups[mat].push({type:"full",fil,brand:fil.brand,colorName:fil.colorName,colorHex:fil.colorHex,loc,weight:fw,count:cnt});
+      allRows.push({type:"full",mat,fil,brand:fil.brand,colorName:fil.colorName,colorHex:fil.colorHex,loc,weight:fw,count:cnt});
     });
-
     (fil.stock||[]).filter(s=>s.weight<fw).forEach(s=>{
-      groups[mat].push({type:"partial",fil,brand:fil.brand,colorName:fil.colorName,colorHex:fil.colorHex,loc:s.location||"Lager",weight:s.weight,count:1});
+      allRows.push({type:"partial",mat,fil,brand:fil.brand,colorName:fil.colorName,colorHex:fil.colorHex,loc:s.location||"Lager",weight:s.weight,count:1});
     });
-
     (fil.inUse||[]).forEach(u=>{
-      groups[mat].push({type:"inuse",fil,brand:fil.brand,colorName:fil.colorName,colorHex:fil.colorHex,loc:u.printer,weight:u.weight,count:1});
+      allRows.push({type:"inuse",mat,fil,brand:fil.brand,colorName:fil.colorName,colorHex:fil.colorHex,loc:u.printer,weight:u.weight,count:1});
     });
   });
 
-  const sorted=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0]));
+  let grouped=[];
+  if(sortMode==="material"){
+    const groups={};
+    allRows.forEach(r=>{if(!groups[r.mat])groups[r.mat]=[];groups[r.mat].push(r);});
+    grouped=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0])).map(([label,rows])=>({label,rows}));
+  } else if(sortMode==="low"){
+    const rows=[...allRows].sort((a,b)=>a.weight-b.weight);
+    grouped=[{label:null,rows}];
+  } else if(sortMode==="location"){
+    const groups={};
+    allRows.forEach(r=>{const k=r.type==="inuse"?r.loc:"Lager";if(!groups[k])groups[k]=[];groups[k].push(r);});
+    grouped=Object.entries(groups).sort((a,b)=>{
+      if(a[0]==="Lager")return -1;if(b[0]==="Lager")return 1;
+      return a[0].localeCompare(b[0]);
+    }).map(([label,rows])=>({label,rows}));
+  }
+
   const rowColor={full:MINT,partial:"#facc15",inuse:"#60a5fa"};
   const rowIcon={full:"●",partial:"◑",inuse:"▶"};
   const rowBg={full:"#071a0e",partial:"#1a1400",inuse:"#030d1a"};
   const rowBorder={full:"#0e3018",partial:"#2e2000",inuse:"#0a1e30"};
 
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
-    {sorted.map(([mat,rows])=>(
-      <div key={mat}>
-        <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.12em",marginBottom:5,paddingLeft:2}}>{mat}</div>
+    <button onClick={()=>setSortIdx(i=>(i+1)%SORT_MODES.length)}
+      style={{alignSelf:"flex-end",...mono,fontSize:10,color:MINT,background:"#071a0e",border:"1px solid #0e3018",borderRadius:5,padding:"4px 10px",cursor:"pointer"}}>
+      {SORT_MODES[sortIdx].label}
+    </button>
+    {grouped.map(({label,rows},gi)=>(
+      <div key={label||gi}>
+        {label&&<div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.12em",marginBottom:5,paddingLeft:2}}>{label}</div>}
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
           {rows.map((row,i)=>(
             <div key={i} onClick={()=>onEdit&&onEdit(row.fil)}
-              style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",background:rowBg[row.type],borderRadius:5,border:`1px solid ${rowBorder[row.type]}`,cursor:"pointer"}}>
+              style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",background:rowBg[row.type],borderRadius:5,border:"1px solid "+rowBorder[row.type],cursor:"pointer"}}>
               <span style={{color:rowColor[row.type],fontSize:11,width:12,flexShrink:0}}>{rowIcon[row.type]}</span>
               <div style={{width:12,height:12,borderRadius:2,background:row.colorHex||"#555",flexShrink:0,border:"1px solid rgba(255,255,255,0.1)"}}/>
               <span style={{...mono,color:TEXT,fontSize:11,width:72,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.brand}</span>
               <span style={{...mono,color:TEXT_DIM,fontSize:11,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.colorName}</span>
               <span style={{...mono,color:TEXT_DIM,fontSize:11,width:60,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right"}}>{row.loc}</span>
-              <span style={{...mono,color:row.type==="inuse"&&row.weight<=100?"#ff2020":rowColor[row.type],fontSize:11,fontWeight:700,width:46,textAlign:"right",flexShrink:0}}>{row.weight}g</span>
+              <span style={{...mono,color:row.weight<=100?"#ff2020":rowColor[row.type],fontSize:11,fontWeight:700,width:46,textAlign:"right",flexShrink:0}}>{row.weight}g</span>
               {row.count>1&&<span style={{...mono,color:TEXT_DIM,fontSize:10,width:24,textAlign:"right",flexShrink:0}}>×{row.count}</span>}
               {row.count===1&&<span style={{width:24,flexShrink:0}}/>}
             </div>
