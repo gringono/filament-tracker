@@ -990,11 +990,17 @@ function SettingsModal({onClose,printers,onSavePrinters,allFilaments,onImport}){
   }
 
   return <Modal title="⚙️ Einstellungen" onClose={onClose}>
-    <div style={{...mono,color:TEXT_DIM,fontSize:11,lineHeight:1.7}}>
-      Für KI-Etikett-Scan: Anthropic API Key<br/>
-      <span style={{color:TEXT_DIM}}>1. </span><span style={{color:TEXT}}>console.anthropic.com</span><br/>
-      <span style={{color:TEXT_DIM}}>2. </span>Account + Kreditkarte + $5 Guthaben<br/>
-      <span style={{color:TEXT_DIM}}>3. </span>API Keys → Create Key → kopieren
+    <div style={{...mono,fontSize:11,lineHeight:1.8,background:"#050e08",border:"1px solid #0e3018",borderRadius:8,padding:"10px 12px"}}>
+      <div style={{color:MINT,fontWeight:700,marginBottom:4}}>API-Key (Anthropic)</div>
+      <div style={{color:TEXT_DIM,marginBottom:8}}>Der Key wird für die KI-Etikettenerkennung im Scan-Tab verwendet. Claude analysiert das Foto und extrahiert automatisch Hersteller, Material, Farbe und Gewicht.</div>
+      <div style={{color:TEXT,marginBottom:2}}>Wo bekommst du den Key?</div>
+      <div style={{color:TEXT_DIM,paddingLeft:8,marginBottom:8}}>
+        → <span style={{color:TEXT}}>console.anthropic.com</span><br/>
+        → Account erstellen → API Keys → Create Key<br/>
+        <span style={{color:"#facc15"}}>Zum Starten reichen 5 € — ein Scan kostet ca. 0,02 €.</span>
+      </div>
+      <div style={{color:TEXT,marginBottom:2}}>Sicherheit</div>
+      <div style={{color:TEXT_DIM,paddingLeft:8}}>Der Key wird nur in deinem Browser gespeichert und nie an einen eigenen Server gesendet. Anfragen gehen direkt von deinem Gerät an Anthropic.</div>
     </div>
     <Field label="ANTHROPIC API KEY">
       <div style={{display:"flex",gap:6}}>
