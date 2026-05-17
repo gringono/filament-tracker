@@ -31,7 +31,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v4.3";
+const VERSION="v4.4";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -772,6 +772,7 @@ function MoveModal({filaments,onMove,onClose,printers,onAddPrinter}){
   const [selectedSpool,setSelectedSpool]=useState(null);
   const [targetPrinter,setTargetPrinter]=useState(printers[0]||"");
   const [returnWeight,setReturnWeight]=useState("");
+  const [returnLocation,setReturnLocation]=useState("");
 
   async function handlePhoto(e){
     const file=e.target.files[0];if(!file)return;
@@ -796,12 +797,12 @@ function MoveModal({filaments,onMove,onClose,printers,onAddPrinter}){
 
   function selectFil(fil){setSelectedFil(fil);setStep("spools");}
   function handleMoveToUse(spool){setSelectedSpool({spool,direction:"toUse"});setTargetPrinter(printers[0]||"");setStep("confirm");}
-  function handleMoveToStock(spool){setSelectedSpool({spool,direction:"toStock"});setReturnWeight(String(spool.weight));setStep("confirm");}
+  function handleMoveToStock(spool){setSelectedSpool({spool,direction:"toStock"});setReturnWeight(String(spool.weight));setReturnLocation(loadLocations()[0]||"Lager");setStep("confirm");}
   function executeMove(){
     if(!selectedSpool||!selectedFil)return;
     const{spool,direction}=selectedSpool;
     onAddPrinter([...new Set([...printers,...(direction==="toUse"?[targetPrinter]:[])])].filter(Boolean));
-    onMove(selectedFil.id,spool.id,direction,direction==="toUse"?targetPrinter:parseInt(returnWeight)||0);
+    onMove(selectedFil.id,spool.id,direction,direction==="toUse"?targetPrinter:{weight:parseInt(returnWeight)||0,location:returnLocation});
     onClose();
   }
 
@@ -897,8 +898,9 @@ function MoveModal({filaments,onMove,onClose,printers,onAddPrinter}){
         <Field label="DRUCKER"><PrinterSelect value={targetPrinter} onChange={v=>setTargetPrinter(v)} printers={printers}/></Field>
       </>}
       {selectedSpool.direction==="toStock"&&<>
-        <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule von <span style={{color:"#60a5fa"}}>{selectedSpool.spool.printer}</span> → Lager. Aktuelles Gewicht?</div>
-        <Field label="GEWICHT (g)"><input style={inputStyle} type="number" value={returnWeight} onChange={e=>setReturnWeight(e.target.value)} autoFocus/></Field>
+        <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule von <span style={{color:"#60a5fa"}}>{selectedSpool.spool.printer}</span> → Lager</div>
+        <Field label="LAGERORT"><LocationSelect value={returnLocation} onChange={setReturnLocation}/></Field>
+        <Field label="GEWICHT (g)"><input style={inputStyle} type="number" value={returnWeight} onChange={e=>setReturnWeight(e.target.value)}/></Field>
       </>}
       <button onClick={executeMove} style={{background:MINT,color:"#000",border:"none",borderRadius:8,padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4}}>
         {selectedSpool.direction==="toUse"?"→ In Drucker einlegen":"→ Ins Lager zurück"}
@@ -1162,7 +1164,7 @@ function App(){
       }else{
         const spool=fil.inUse.find(u=>u.id===spoolId);
         if(!spool)return fil;
-        return {...fil,inUse:fil.inUse.filter(u=>u.id!==spoolId),stock:[...fil.stock,{id:spool.id,location:"Lager",weight:data}]};
+        return {...fil,inUse:fil.inUse.filter(u=>u.id!==spoolId),stock:[...fil.stock,{id:spool.id,location:data.location||"Lager",weight:data.weight}]};
       }
     }));
   }
