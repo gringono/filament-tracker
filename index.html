@@ -31,7 +31,7 @@
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
 
-const VERSION="v4.4";
+const VERSION="v4.5";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -797,7 +797,7 @@ function MoveModal({filaments,onMove,onClose,printers,onAddPrinter}){
 
   function selectFil(fil){setSelectedFil(fil);setStep("spools");}
   function handleMoveToUse(spool){setSelectedSpool({spool,direction:"toUse"});setTargetPrinter(printers[0]||"");setStep("confirm");}
-  function handleMoveToStock(spool){setSelectedSpool({spool,direction:"toStock"});setReturnWeight(String(spool.weight));setReturnLocation(loadLocations()[0]||"Lager");setStep("confirm");}
+  function handleMoveToStock(spool){setSelectedSpool({spool,direction:"toStock"});setReturnWeight(String(spool.weight));setReturnLocation(loadCustomLocs()[0]||"");setStep("confirm");}
   function executeMove(){
     if(!selectedSpool||!selectedFil)return;
     const{spool,direction}=selectedSpool;
@@ -899,7 +899,7 @@ function MoveModal({filaments,onMove,onClose,printers,onAddPrinter}){
       </>}
       {selectedSpool.direction==="toStock"&&<>
         <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule von <span style={{color:"#60a5fa"}}>{selectedSpool.spool.printer}</span> → Lager</div>
-        <Field label="LAGERORT"><LocationSelect value={returnLocation} onChange={setReturnLocation}/></Field>
+        <Field label="LAGERORT"><LocationCombo value={returnLocation} onChange={setReturnLocation}/></Field>
         <Field label="GEWICHT (g)"><input style={inputStyle} type="number" value={returnWeight} onChange={e=>setReturnWeight(e.target.value)}/></Field>
       </>}
       <button onClick={executeMove} style={{background:MINT,color:"#000",border:"none",borderRadius:8,padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4}}>
