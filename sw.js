@@ -1,39 +1,35 @@
-const CACHE = "filament-v3";
+const CACHE = "filament-v4.7";
 const ASSETS = ["./index.html", "./manifest.json"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
-  self.skipWaiting(); // activate immediately
+  self.skipWaiting();
 });
-
 self.addEventListener("activate", e => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
-  );
-  self.clients.claim(); // take control immediately
+  e.waitUntil(caches.keys().then(keys =>
+    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+  ));
+  self.clients.claim();
 });
-
 self.addEventListener("fetch", e => {
-  // Never cache API calls
-  if (e.request.url.includes("api.anthropic.com") ||
-      e.request.url.includes("googleapis.com") ||
-      e.request.url.includes("fonts.googleapis.com") ||
-      e.request.url.includes("cdnjs.cloudflare.com")) return;
+  const url = e.request.url;
+  if (url.includes("api.anthropic.com") || url.includes("fonts.googleapis.com")) return;
 
-  // Network first for HTML — always get fresh version
-  if (e.request.url.endsWith(".html") || e.request.url.endsWith("/")) {
+  // HTML/Navigation: network-first — lädt immer die neueste Version, Cache nur als Offline-Fallback.
+  const isDoc = e.request.mode === "navigate" || url.endsWith("index.html") || url.endsWith("/");
+  if (isDoc) {
     e.respondWith(
-      fetch(e.request).then(res => {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
-        return res;
-      }).catch(() => caches.match(e.request))
+      fetch(e.request)
+        .then(r => {
+          const copy = r.clone();
+          caches.open(CACHE).then(c => c.put("./index.html", copy));
+          return r;
+        })
+        .catch(() => caches.match("./index.html").then(r => r || caches.match(e.request)))
     );
     return;
   }
 
-  // Cache first for everything else
+  // Übrige Assets: cache-first (schnell, offline-tauglich).
   e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
 });
