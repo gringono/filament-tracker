@@ -63,7 +63,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v4.9";
+const VERSION="v5.0";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -627,6 +627,8 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
   const [scanning,setScanning]=useState(false);
   const [scanError,setScanError]=useState("");
   const [preview,setPreview]=useState(null);
+  const [loadPanel,setLoadPanel]=useState(false);   // Auswahl-Panel "Lager-Spule in Drucker einlegen"
+  const [loadPrinter,setLoadPrinter]=useState(printers[0]||"");
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
 
   const fullW=form.fullWeight||1000;
@@ -637,9 +639,29 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
   function removeStock(id){setForm(f=>({...f,stock:f.stock.filter(s=>s.id!==id)}));}
 
   // InUse helpers
-  function addInUse(){setForm(f=>({...f,inUse:[...f.inUse,{id:genId(),printer:printers[0]||"",weight:f.fullWeight}]}));}
   function updateInUse(id,key,val){setForm(f=>({...f,inUse:f.inUse.map(u=>u.id===id?{...u,[key]:val}:u)}));}
   function removeInUse(id){setForm(f=>({...f,inUse:f.inUse.filter(u=>u.id!==id)}));}
+
+  // Spule aus dem Lager in einen Drucker einlegen (verschieben, nicht kopieren).
+  function loadStockToPrinter(stockId,printer){
+    setForm(f=>{
+      const spool=f.stock.find(s=>s.id===stockId);
+      if(!spool)return f;
+      return {...f,
+        stock:f.stock.filter(s=>s.id!==stockId),
+        inUse:[...f.inUse,{id:spool.id,printer:printer||printers[0]||"",weight:spool.weight}]};
+    });
+  }
+  // Spule aus dem Drucker zurück ins Lager buchen.
+  function returnInUseToStock(inUseId){
+    setForm(f=>{
+      const spool=f.inUse.find(u=>u.id===inUseId);
+      if(!spool)return f;
+      return {...f,
+        inUse:f.inUse.filter(u=>u.id!==inUseId),
+        stock:[...f.stock,{id:spool.id,location:"Lager",weight:spool.weight}]};
+    });
+  }
 
   async function handlePhoto(e){
     const file=e.target.files[0];if(!file)return;
@@ -768,14 +790,41 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
             <input style={{...inputStyle,width:90}} type="number" value={u.weight} onChange={e=>updateInUse(u.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm"/>
             <button onClick={()=>removeInUse(u.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span style={{...mono,fontSize:10,color:"#60a5fa"}}>{calcPct(u.weight,fullW)}%</span>
-            <button onClick={()=>updateInUse(u.id,"weight",form.fullWeight)} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:10,cursor:"pointer",padding:0}}>→ voll ({form.fullWeight}g)</button>
+            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+              <button onClick={()=>returnInUseToStock(u.id)} style={{...mono,background:"none",border:"none",color:"#4ade80",fontSize:10,cursor:"pointer",padding:0}}>↩ ins Lager</button>
+              <button onClick={()=>updateInUse(u.id,"weight",form.fullWeight)} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:10,cursor:"pointer",padding:0}}>→ voll ({form.fullWeight}g)</button>
+            </div>
           </div>
           <RemainingBar weight={u.weight} fullWeight={fullW}/>
         </div>
       ))}
-      {addBtn("+ Spule in Drucker hinzufügen",addInUse,"inuse")}
+
+      {/* Lager-Spule einlegen: Auswahl statt neue Spule erzeugen */}
+      {form.stock.length===0
+        ? <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <button disabled style={{background:"#0a0f18",border:"1px solid #1c2c40",borderRadius:6,color:TEXT_MUTED,padding:"10px 0",fontSize:12,...mono,width:"100%",fontWeight:700,cursor:"not-allowed",opacity:0.6}}>+ Spule in Drucker hinzufügen</button>
+            <div style={{...mono,color:TEXT_MUTED,fontSize:10,textAlign:"center"}}>Keine Lager-Spule vorhanden — erst im Lager anlegen.</div>
+          </div>
+        : !loadPanel
+          ? addBtn("+ Spule in Drucker hinzufügen",()=>{setLoadPrinter(printers[0]||"");setLoadPanel(true);},"inuse")
+          : <div style={{background:"#030a16",border:"1px solid #1a3f6e",borderRadius:8,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{...mono,color:"#60a5fa",fontSize:11,fontWeight:700}}>Welche Lager-Spule einlegen?</div>
+              <Field label="ZIEL-DRUCKER"><PrinterSelect value={loadPrinter} onChange={setLoadPrinter} printers={printers}/></Field>
+              {form.stock.map(s=>(
+                <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"#071a0e",borderRadius:6,border:"1px solid #0e3018"}}>
+                  <span style={{color:MINT,fontSize:12}}>●</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{...mono,color:MINT,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.location||"Lager"}</div>
+                    <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{s.weight}g ({calcPct(s.weight,fullW)}%)</div>
+                  </div>
+                  <button onClick={()=>{loadStockToPrinter(s.id,loadPrinter);setLoadPanel(false);}} style={{...mono,background:"#60a5fa",color:"#000",border:"none",borderRadius:6,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>→ einlegen</button>
+                </div>
+              ))}
+              <button onClick={()=>setLoadPanel(false)} style={{...mono,background:"none",border:`1px solid ${BORDER}`,borderRadius:6,color:TEXT_DIM,padding:"8px 0",cursor:"pointer",fontSize:11,width:"100%"}}>Abbrechen</button>
+            </div>
+      }
     </div>
 
     {/* Notes */}
