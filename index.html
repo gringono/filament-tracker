@@ -60,13 +60,10 @@ function useViewport(){
   },[]);
   // Skalierung: schrumpft auf schmalen Screens, wächst moderat auf breiten.
   const zoom=Math.max(0.6,Math.min(1.3,vp.width/DESIGN_WIDTH));
-  // Als CSS-Variable bereitstellen, damit fixierte Elemente (Modals) mit vh-Höhen
-  // den Zoom kompensieren können (sonst werden sie höher als der Bildschirm).
-  useEffect(()=>{document.documentElement.style.setProperty("--app-zoom",zoom);},[zoom]);
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v4.8";
+const VERSION="v4.9";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -208,7 +205,7 @@ function PhotoButton({label,onChange,loading}){
 function Modal({title,children,onClose}){
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
     <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:"16px 16px 0 0",
-      width:"100%",maxWidth:520,maxHeight:"calc(94vh / var(--app-zoom,1))",overflowY:"auto",
+      width:"100%",maxWidth:520,maxHeight:"94vh",overflowY:"auto",
       padding:"20px 16px calc(24px + env(safe-area-inset-bottom))",display:"flex",flexDirection:"column",gap:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{color:MINT,fontWeight:700,fontSize:16,...mono}}>{title}</span>
@@ -251,18 +248,19 @@ function saveCustomMat(m){if(!m||MATERIALS.includes(m))return;const cur=loadCust
 
 function MaterialCombo({value,onChange}){
   const [custom,setCustom]=useState(!MATERIALS.includes(value)&&!!value);
+  const [userPicked,setUserPicked]=useState(false);
   const customMats=loadCustomMats();
   const allMats=[...MATERIALS,...customMats.filter(m=>!MATERIALS.includes(m))];
   return <div style={{display:"flex",flexDirection:"column",gap:4}}>
     <select style={inputStyle} value={custom?"__custom__":value}
-      onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);onChange("");}else{setCustom(false);onChange(e.target.value);}}}>
+      onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);setUserPicked(true);onChange("");}else{setCustom(false);onChange(e.target.value);}}}>
       {allMats.map(m=><option key={m}>{m}</option>)}
       <option value="__custom__">✏️ Eigene Eingabe...</option>
     </select>
     {custom&&<input style={{...inputStyle,borderColor:MINT}} value={value}
       onChange={e=>onChange(e.target.value)}
       onBlur={e=>saveCustomMat(e.target.value)}
-      placeholder="z.B. PLA-CF, PAHT..." autoFocus/>}
+      placeholder="z.B. PLA-CF, PAHT..." autoFocus={userPicked}/>}
   </div>;
 }
 
@@ -274,10 +272,11 @@ function saveCustomLoc(l){if(!l)return;const cur=loadCustomLocs();if(!cur.includ
 function LocationCombo({value,onChange}){
   const locs=loadCustomLocs();
   const [custom,setCustom]=useState(locs.length>0&&!locs.includes(value)&&!!value);
+  const [userPicked,setUserPicked]=useState(false);
   return <div style={{display:"flex",flexDirection:"column",gap:4}}>
     {locs.length>0
       ?<select style={inputStyle} value={custom?"__custom__":value||""}
-          onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);onChange("");}else{setCustom(false);onChange(e.target.value);}}}>
+          onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);setUserPicked(true);onChange("");}else{setCustom(false);onChange(e.target.value);}}}>
           <option value="">— Lagerort wählen —</option>
           {locs.map(l=><option key={l}>{l}</option>)}
           <option value="__custom__">✏️ Neuer Lagerort...</option>
@@ -288,7 +287,7 @@ function LocationCombo({value,onChange}){
     {custom&&<input style={{...inputStyle,borderColor:MINT}} value={value}
       onChange={e=>onChange(e.target.value)}
       onBlur={e=>{saveCustomLoc(e.target.value);}}
-      placeholder="z.B. Regal-A, Box-2..." autoFocus/>}
+      placeholder="z.B. Regal-A, Box-2..." autoFocus={userPicked}/>}
   </div>;
 }
 
@@ -1237,7 +1236,8 @@ function App(){
     <button onClick={()=>{if(total===0){alert("Erst Filament anlegen.");return;}setModal("move");}} style={{...mono,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:8,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>⇄ Bewegen</button>
   </div>;
 
-  return <div style={{background:"#050805",minHeight:`calc(100vh / ${zoom})`,display:"flex",justifyContent:"center",zoom:zoom}}>
+  return <>
+  <div style={{background:"#050805",minHeight:`calc(100vh / ${zoom})`,display:"flex",justifyContent:"center",zoom:zoom}}>
   <div style={{width:"100%",maxWidth:DESIGN_WIDTH,minHeight:`calc(100vh / ${zoom})`,background:BG,color:TEXT,
     paddingBottom:"calc(80px + env(safe-area-inset-bottom))",
     boxShadow:isMobile?"none":"0 0 60px rgba(0,0,0,0.8)",position:"relative"}}>
@@ -1328,6 +1328,7 @@ function App(){
     </div>
 
     </div>
+  </div>
     {dupeCheck&&<DuplicateModal
       existing={dupeCheck.existing}
       onMerge={handleMerge}
@@ -1340,7 +1341,7 @@ function App(){
     {modal==="scanDelete"&&<ScanDeleteModal filaments={filaments} onDelete={id=>setFilaments(f=>f.filter(x=>x.id!==id))} onClose={()=>setModal(null)}/>}
     {modal&&modal!=="add"&&modal!=="move"&&modal!=="settings"&&modal!=="scanDelete"&&
       <FilamentModal initial={modal} onSave={handleSave} onDelete={id=>{setFilaments(f=>f.filter(x=>x.id!==id));setModal(null);}} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
-  </div>;
+  </>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
