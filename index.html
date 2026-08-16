@@ -13,7 +13,10 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-    html,body{margin:0;padding:0;background:#080c0a;color:#d4f0dc;font-family:'IBM Plex Mono',monospace;overscroll-behavior:none;}
+    html,body{margin:0;padding:0;background:#080c0a;color:#d4f0dc;font-family:'IBM Plex Mono',monospace;overscroll-behavior:none;overflow-x:hidden;width:100%;max-width:100%;}
+    #root{width:100%;min-height:100vh;}
+    img,svg,video,canvas{max-width:100%;}
+    input,select,textarea{max-width:100%;}
     input,select,button,textarea{font-family:'IBM Plex Mono',monospace;}
     input[type=number]::-webkit-inner-spin-button{opacity:1;}
     ::-webkit-scrollbar{width:4px;}
@@ -30,6 +33,35 @@
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback}=React;
+
+// ── Responsive scaling ──
+// Das gesamte UI ist pixelgenau für ~400px Breite entworfen. Statt hunderte
+// Werte umzuschreiben, skalieren wir das komplette Design proportional zur
+// tatsächlichen Bildschirmbreite, damit es auf jedem Handy exakt passt.
+const DESIGN_WIDTH=400;
+function useViewport(){
+  const [vp,setVp]=useState(()=>({
+    width:typeof window!=="undefined"?window.innerWidth:DESIGN_WIDTH,
+    height:typeof window!=="undefined"?window.innerHeight:800,
+  }));
+  useEffect(()=>{
+    let raf=null;
+    function calc(){
+      if(raf)cancelAnimationFrame(raf);
+      raf=requestAnimationFrame(()=>setVp({width:window.innerWidth,height:window.innerHeight}));
+    }
+    window.addEventListener("resize",calc);
+    window.addEventListener("orientationchange",calc);
+    return ()=>{
+      if(raf)cancelAnimationFrame(raf);
+      window.removeEventListener("resize",calc);
+      window.removeEventListener("orientationchange",calc);
+    };
+  },[]);
+  // Skalierung: schrumpft auf schmalen Screens, wächst moderat auf breiten.
+  const zoom=Math.max(0.6,Math.min(1.3,vp.width/DESIGN_WIDTH));
+  return {...vp,zoom,isMobile:vp.width<=600};
+}
 
 const VERSION="v4.6";
 const STORAGE_KEY="filament_v3";
@@ -1104,6 +1136,7 @@ function NeonIllustration(){
 
 // ── Main App ──
 function App(){
+  const {zoom,isMobile}=useViewport();
   const [filaments,setFilaments]=useState(loadFilaments);
   const [printers,setPrinters]=useState(loadPrinters);
   const [modal,setModal]=useState(null);
@@ -1189,7 +1222,6 @@ function App(){
     return true;
   });
 
-  const isMobile=window.innerWidth<=600;
   const [tab,setTab]=useState("cards"); // "cards" | "list"
   const [screen,setScreen]=useState("home"); // "home" | "inventory"
   const [dupeCheck,setDupeCheck]=useState(null);
@@ -1202,8 +1234,8 @@ function App(){
     <button onClick={()=>{if(total===0){alert("Erst Filament anlegen.");return;}setModal("move");}} style={{...mono,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:8,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>⇄ Bewegen</button>
   </div>;
 
-  return <div style={{background:"#050805",minHeight:"100vh",display:"flex",justifyContent:"center"}}>
-  <div style={{width:"100%",maxWidth:430,minHeight:"100vh",background:BG,color:TEXT,
+  return <div style={{background:"#050805",minHeight:`calc(100vh / ${zoom})`,display:"flex",justifyContent:"center",zoom:zoom}}>
+  <div style={{width:"100%",maxWidth:DESIGN_WIDTH,minHeight:`calc(100vh / ${zoom})`,background:BG,color:TEXT,
     paddingBottom:"calc(80px + env(safe-area-inset-bottom))",
     boxShadow:isMobile?"none":"0 0 60px rgba(0,0,0,0.8)",position:"relative"}}>
     {/* Header */}
@@ -1271,7 +1303,7 @@ function App(){
     {screen==="qr"&&<QRScannerScreen filaments={filaments}/>}
 
     {/* Bottom Tab Bar */}
-    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,
+    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:DESIGN_WIDTH,
       background:SURFACE,borderTop:`1px solid ${BORDER}`,display:"flex",zIndex:20,
       paddingBottom:"env(safe-area-inset-bottom)"}}>
       <button onClick={()=>setScreen("home")} style={{flex:1,padding:"12px 0",background:"none",border:"none",
