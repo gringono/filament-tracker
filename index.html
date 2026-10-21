@@ -63,7 +63,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v5.1";
+const VERSION="v5.3";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -208,6 +208,36 @@ function fitPayload(p,max){
 function scaleWriteUrl(host,payload){
   return `http://${host}/#rfid=${encodeURIComponent(JSON.stringify(payload))}`;
 }
+
+// ── Gewicht von der Waage übernehmen ──
+// Die App öffnet http://<waage>/#sync=<App-Adresse>. rfid_writer.js auf der Waage liest
+// Spulen-ID + Netto-Gewicht und antwortet per postMessage oder per Rücksprung
+// <App-Adresse>#waage=<Ergebnis>. Ergebnis: "ok:<spoolId>:<gramm>" oder "fehler:<grund>".
+function scaleSyncUrl(host,appUrl){
+  return `http://${host}/#sync=${encodeURIComponent(appUrl)}`;
+}
+function parseScaleResult(raw){
+  if(typeof raw!=="string")return null;
+  const ok=raw.match(/^ok:([^:]+):(-?\d+)$/);
+  if(ok)return {id:ok[1],g:Math.max(0,parseInt(ok[2],10))};
+  const f=raw.match(/^fehler:(\w+)$/);
+  return f?{fehler:f[1]}:null;
+}
+function findSpool(filaments,id){
+  for(const fil of filaments){
+    const s=(fil.stock||[]).find(x=>x.id===id);
+    if(s)return {fil,spool:s,liste:"stock",ort:`📦 ${s.location||"Lager"}`};
+    const u=(fil.inUse||[]).find(x=>x.id===id);
+    if(u)return {fil,spool:u,liste:"inUse",ort:`▶ ${u.printer}`};
+  }
+  return null;
+}
+const SCALE_ERRORS={
+  kein_tag:"Auf der Waage liegt keine Spule mit lesbarem Tag. Spule auflegen (ggf. kurz abheben und neu auflegen) und nochmal versuchen.",
+  keine_id:"Auf dem Tag steht keine Spulen-ID. Tag neu schreiben und dabei eine Spule auswählen (nicht „Ohne Spulen-ID“).",
+  kein_leergewicht:"Für diese Spule ist kein Leergewicht gespeichert. Tag einmal neu schreiben – dabei muss die Spule auf der Waage liegen.",
+  unbekannt:"Die Spule vom Tag gibt es in der App nicht (mehr). Vielleicht wurde sie gelöscht oder auf einem anderen Gerät angelegt.",
+};
 
 // ── UI Primitives ──
 const inputStyle={...mono,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,
@@ -654,7 +684,10 @@ function RfidWriteModal({fil,onClose}){
   // Mit Web NFC (Android) direkt aufs Tag, sonst über die Waage (max. 255 Zeichen).
   const viaScale=!hasWebNFC;
   const full=buildOpenSpool(fil,spool);
-  const payload=viaScale?fitPayload(full,HA_TEXT_MAX):full;
+  // Über die Waage: aktuelles Filamentgewicht der Spule mitschicken ("rest"). Die Waage
+  // berechnet daraus das Leergewicht (gemessen − rest) und schreibt es als spool_weight auf den Tag.
+  const withRest=viaScale&&spool?{...full,rest:String(spool.weight)}:full;
+  const payload=viaScale?fitPayload(withRest,HA_TEXT_MAX):full;
   const bytes=payloadBytes(payload);
   const limit=viaScale?HA_TEXT_MAX:NTAG_CAPACITY.NTAG215;
   const fits=bytes<=limit;
@@ -669,7 +702,8 @@ function RfidWriteModal({fil,onClose}){
     window.location.href=scaleWriteUrl(loadScaleHost(),payload);
   }
   function copyPayload(){
-    const text=JSON.stringify(payload);
+    const {rest,...ohneRest}=payload; // "rest" ist nur für die Waage, nicht für den Tag
+    const text=JSON.stringify(ohneRest);
     navigator.clipboard.writeText(text)
       .then(()=>setStatus({type:"ok",msg:"✓ Kopiert — in NFC Tools: Schreiben → Datensatz hinzufügen → Text → einfügen."}))
       .catch(()=>setStatus({type:"err",msg:"Kopieren nicht möglich."}));
@@ -697,6 +731,9 @@ function RfidWriteModal({fil,onClose}){
         color:TEXT_DIM,fontSize:10,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{JSON.stringify(payload,null,1)}</pre>
     </Field>
     {viaScale&&dropped.length>0&&<div style={{...mono,color:TEXT_MUTED,fontSize:10}}>Gekürzt auf {HA_TEXT_MAX} Zeichen, weggelassen: {dropped.join(", ")}</div>}
+    {viaScale&&"rest" in payload&&<div style={{...mono,color:"#facc15",fontSize:10,lineHeight:1.6}}>
+      ⚖️ Spule vorher auf die Waage legen! Die Waage berechnet das Leergewicht aus Gesamtgewicht − {payload.rest} g Filament und speichert es auf dem Tag.
+    </div>}
     {!fits&&<div style={{...mono,color:"#f87171",fontSize:10}}>{viaScale
       ?`Zu lang für die Waage (${HA_TEXT_MAX} Zeichen) — Hersteller oder Farbname kürzen.`
       :`Zu groß für NTAG215 (${NTAG_CAPACITY.NTAG215} Bytes) — NTAG216 verwenden.`}</div>}
@@ -712,6 +749,37 @@ function RfidWriteModal({fil,onClose}){
 
     {status&&<div style={{...mono,fontSize:11,textAlign:"center",
       color:status.type==="ok"?MINT:status.type==="err"?"#f87171":"#facc15"}}>{status.msg}</div>}
+  </Modal>;
+}
+
+// ── Von Waage übernehmen: Bestätigung ──
+function WaageSyncModal({sync,onApply,onClose}){
+  const btn={...mono,borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"};
+  if(sync.fehler)return <Modal title="⚖️ Von Waage übernehmen" onClose={onClose}>
+    <div style={{...mono,color:"#f87171",fontSize:12,lineHeight:1.7}}>{SCALE_ERRORS[sync.fehler]||"Die Waage hat einen unbekannten Fehler gemeldet."}</div>
+    <button onClick={onClose} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`}}>OK</button>
+  </Modal>;
+  const {fil,spool,ort,neu}=sync;
+  const fw=fil.fullWeight||1000;
+  const alt=spool.weight;
+  const diff=neu-alt;
+  return <Modal title="⚖️ Von Waage übernehmen" onClose={onClose}>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <ColorChip hex={fil.colorHex} size={30}/>
+      <div>
+        <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{fil.brand||"—"} {fil.colorName}</div>
+        <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{fil.material} · {ort}</div>
+      </div>
+    </div>
+    <div style={{...mono,textAlign:"center",padding:"8px 0"}}>
+      <span style={{color:TEXT_DIM,fontSize:16}}>{alt} g</span>
+      <span style={{color:TEXT_MUTED,fontSize:16}}> → </span>
+      <span style={{color:MINT,fontSize:26,fontWeight:700}}>{neu} g</span>
+      <div style={{color:diff<0?"#facc15":TEXT_DIM,fontSize:11,marginTop:4}}>{diff===0?"unverändert":`${diff>0?"+":""}${diff} g`} · {calcPct(neu,fw)}% von {fw} g</div>
+    </div>
+    <RemainingBar weight={neu} fullWeight={fw}/>
+    <button onClick={onApply} style={{...btn,background:MINT,color:"#000",border:"none"}}>✓ Übernehmen</button>
+    <button onClick={onClose} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,fontWeight:400}}>Abbrechen</button>
   </Modal>;
 }
 
@@ -1420,9 +1488,49 @@ function App(){
   function goInventory(t){setScreen("inventory");if(t)setTab(t);}
   function goHome(){setScreen("home");}
 
+  // ── Gewicht von der Waage übernehmen ──
+  const [waageSync,setWaageSync]=useState(null); // {fil,spool,liste,ort,neu} | {fehler}
+  const filamentsRef=useRef(filaments);
+  filamentsRef.current=filaments;
+  function handleScaleResult(raw){
+    const r=parseScaleResult(raw);
+    if(!r)return;
+    if(r.fehler){setWaageSync({fehler:r.fehler});return;}
+    const hit=findSpool(filamentsRef.current,r.id);
+    setWaageSync(hit?{...hit,neu:r.g}:{fehler:"unbekannt"});
+  }
+  useEffect(()=>{
+    // Rückweg 2: Waage springt zurück mit #waage=<Ergebnis>
+    const m=location.hash.match(/^#waage=(.+)$/);
+    if(m){
+      history.replaceState(null,"",location.pathname+location.search);
+      try{handleScaleResult(decodeURIComponent(m[1]));}catch{}
+    }
+    // Rückweg 1: Waagen-Fenster schickt das Ergebnis per postMessage
+    function onMsg(e){
+      if(e.origin!==`http://${loadScaleHost()}`)return;
+      if(e.data&&e.data.type==="filament-waage")handleScaleResult(e.data.ergebnis);
+    }
+    window.addEventListener("message",onMsg);
+    return ()=>window.removeEventListener("message",onMsg);
+  },[]);
+  function syncFromScale(){
+    if(total===0){alert("Erst Filament anlegen.");return;}
+    const url=scaleSyncUrl(loadScaleHost(),location.origin+location.pathname);
+    const w=window.open(url,"_blank");
+    if(!w)window.location.href=url;
+  }
+  function applySync(){
+    const {fil,spool,liste,neu}=waageSync;
+    setFilaments(fs=>fs.map(f=>f.id!==fil.id?f:{...f,[liste]:(f[liste]||[]).map(s=>s.id===spool.id?{...s,weight:neu}:s)}));
+    setWaageSync(null);
+  }
+  const syncBtnStyle={...mono,background:"#1a1400",color:"#facc15",border:"1px solid #3a2e00",cursor:"pointer",fontWeight:700};
+
   const actionBtnsSmall=<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:4}}>
     <button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:8,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>＋ Neu anlegen</button>
     <button onClick={()=>{if(total===0){alert("Erst Filament anlegen.");return;}setModal("move");}} style={{...mono,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:8,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>⇄ Bewegen</button>
+    <button onClick={syncFromScale} style={{...syncBtnStyle,gridColumn:"1 / span 2",borderRadius:8,padding:"9px 0",fontSize:12}}>⚖️ Von Waage übernehmen</button>
   </div>;
 
   return <>
@@ -1472,6 +1580,9 @@ function App(){
         <button onClick={()=>{if(total===0){alert("Erst Filament anlegen.");return;}setModal("move");}} style={{...mono,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:12,padding:"18px 0",fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
           <span style={{fontSize:26}}>⇄</span>Bewegen
         </button>
+        <button onClick={syncFromScale} style={{...syncBtnStyle,gridColumn:"1 / span 2",borderRadius:12,padding:"14px 0",fontSize:14}}>
+          ⚖️ Von Waage übernehmen
+        </button>
       </div>
     </div>}
 
@@ -1518,6 +1629,7 @@ function App(){
 
     </div>
   </div>
+    {waageSync&&<WaageSyncModal sync={waageSync} onApply={applySync} onClose={()=>setWaageSync(null)}/>}
     {dupeCheck&&<DuplicateModal
       existing={dupeCheck.existing}
       onMerge={handleMerge}
