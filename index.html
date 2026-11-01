@@ -221,7 +221,7 @@ function gramColor(w,full){
 async function scanLabel(b64,mediaType,mode,apiKey){
   const multiColorTerms="Dual Color,Dual Colour,Bicolor,Two-Color,2-Color,Silk Dual,Tri Color,Tri Colour,Three-Color,3-Color,Tricolor,Rainbow,Multicolor,Multi-Color,Gradient,Galaxy,Marble,Silk Rainbow,Chameleon";
   const sys=mode==="add"
-    ?`Filament label reader. Return ONLY valid JSON no markdown: {"brand":"","material":"PLA","colorName":"","colorHex":"#aaaaaa","diameter":1.75,"fullWeight":1000,"notes":""}. fullWeight in grams default 1000. IMPORTANT: If the label contains any multi-color indicator (${multiColorTerms}), set colorHex to an array of 2-3 hex colors (e.g. ["#ff0000","#0000ff"]) extracted or estimated from the label visuals. For single-color filaments, colorHex remains a single string.`
+    ?`Filament label reader. Return ONLY valid JSON no markdown: {"brand":"","material":"","colorName":"","colorHex":"","diameter":null,"fullWeight":null,"notes":""}. Only fill values that are printed on or clearly visible on the label – never guess or use defaults. fullWeight = net filament weight in grams as printed (e.g. 1kg → 1000); diameter in mm as printed; use null if not printed. colorHex may be estimated from the visible filament/label color. IMPORTANT: If the label contains any multi-color indicator (${multiColorTerms}), set colorHex to an array of 2-3 hex colors (e.g. ["#ff0000","#0000ff"]) extracted or estimated from the label visuals. For single-color filaments, colorHex remains a single string.`
     :`Filament label reader. Return ONLY valid JSON: {"brand":"","material":"","colorName":"","colorHex":""}. If multi-color filament (${multiColorTerms}), set colorHex to array of 2-3 hex strings.`;
   const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
@@ -431,6 +431,7 @@ function MaterialCombo({value,onChange}){
   return <div style={{display:"flex",flexDirection:"column",gap:4}}>
     <select style={inputStyle} value={custom?"__custom__":value}
       onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);setUserPicked(true);onChange("");}else{setCustom(false);onChange(e.target.value);}}}>
+      <option value="">— wählen —</option>
       {allMats.map(m=><option key={m}>{m}</option>)}
       <option value="__custom__">✏️ Eigene Eingabe...</option>
     </select>
@@ -915,15 +916,16 @@ function DuplicateModal({existing,onMerge,onNew,onClose}){
 function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
   const fw=initial?.fullWeight||1000;
   const [form,setForm]=useState({
-    brand:"",material:"PLA",colorName:"",colorHex:"#aaaaaa",
-    diameter:1.75,fullWeight:1000,
+    brand:"",material:"",colorName:"",colorHex:"",
+    diameter:"",fullWeight:"",
     stock:[],inUse:[],notes:"",
     ...(initial||{})
   });
   const [scanning,setScanning]=useState(false);
   const [scanError,setScanError]=useState("");
   const [preview,setPreview]=useState(null);
-  const [loadPanel,setLoadPanel]=useState(false);   // Auswahl-Panel "Lager-Spule in Drucker einlegen"
+  const [loadPanel,setLoadPanel]=useState(false);
+  const [speicherFehler,setSpeicherFehler]=useState("");   // Auswahl-Panel "Lager-Spule in Drucker einlegen"
   const [loadPrinter,setLoadPrinter]=useState(printers[0]||"");
   const [rfid,setRfid]=useState(false);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -936,7 +938,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
       style={{...inputStyle,width:62,padding:"3px 5px",fontSize:10}}/>g</label>;
 
   // Stock helpers
-  function addStock(){setForm(f=>({...f,stock:[...f.stock,{id:genId(),location:"Lager",weight:f.fullWeight}]}));}
+  function addStock(){setForm(f=>({...f,stock:[...f.stock,{id:genId(),location:"Lager",weight:f.fullWeight||""}]}));}
   function updateStock(id,key,val){setForm(f=>({...f,stock:f.stock.map(s=>s.id===id?{...s,[key]:val}:s)}));}
   function removeStock(id){setForm(f=>({...f,stock:f.stock.filter(s=>s.id!==id)}));}
 
@@ -993,6 +995,9 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
   }
 
   function handleSave(){
+    const fehlt=[!form.material&&"Material",!form.diameter&&"Durchmesser",!(form.fullWeight>0)&&"Startgewicht"].filter(Boolean);
+    if(fehlt.length){setSpeicherFehler(`Bitte noch angeben: ${fehlt.join(", ")} – oder Etikett scannen.`);return;}
+    setSpeicherFehler("");
     // collect new printers
     const allPrinters=[...new Set([...printers,...form.inUse.map(u=>u.printer).filter(Boolean)])];
     onAddPrinter(allPrinters);
@@ -1031,16 +1036,16 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
         <Field label="MATERIAL"><MaterialCombo value={form.material} onChange={v=>set("material",v)}/></Field>
         <Field label="FARBE (HEX)">
           {(()=>{
-            const colors=Array.isArray(form.colorHex)?form.colorHex:[form.colorHex||"#aaaaaa"];
+            const colors=Array.isArray(form.colorHex)?form.colorHex:[form.colorHex||""];
             const setColor=(i,v)=>{const arr=[...colors];arr[i]=v;set("colorHex",arr.length===1?arr[0]:arr);};
             const addColor=()=>{if(colors.length<3)set("colorHex",[...colors,"#aaaaaa"]);};
             const removeColor=(i)=>{const arr=colors.filter((_,j)=>j!==i);set("colorHex",arr.length===1?arr[0]:arr);};
             return <div style={{display:"flex",flexDirection:"column",gap:4}}>
               {colors.map((c,i)=>(
                 <div key={i} style={{display:"flex",gap:5,alignItems:"center"}}>
-                  <input type="color" value={c} onChange={e=>setColor(i,e.target.value)}
-                    style={{width:32,height:32,border:`1px solid ${BORDER}`,borderRadius:5,background:SURFACE,cursor:"pointer",padding:2,flexShrink:0}}/>
-                  <input style={{...inputStyle,flex:1,fontSize:11}} value={c} onChange={e=>setColor(i,e.target.value)}/>
+                  <input type="color" value={c||"#808080"} onChange={e=>setColor(i,e.target.value)} title={c?"":"noch keine Farbe"}
+                    style={{width:32,height:32,border:`1px ${c?"solid":"dashed"} ${BORDER}`,borderRadius:5,background:SURFACE,cursor:"pointer",padding:2,flexShrink:0,opacity:c?1:0.25}}/>
+                  <input style={{...inputStyle,flex:1,fontSize:11}} value={c} placeholder="z.B. #1a1a1a" onChange={e=>setColor(i,e.target.value)}/>
                   {colors.length>1&&<button onClick={removeColor.bind(null,i)} style={{...mono,background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:14,padding:"0 2px",flexShrink:0}}>×</button>}
                 </div>
               ))}
@@ -1052,11 +1057,12 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Field label="DURCHMESSER">
-          <select style={inputStyle} value={form.diameter} onChange={e=>set("diameter",parseFloat(e.target.value))}>
+          <select style={inputStyle} value={form.diameter??""} onChange={e=>set("diameter",e.target.value===""?"":parseFloat(e.target.value))}>
+            <option value="">— wählen —</option>
             {DIAMETERS.map(d=><option key={d} value={d}>{d} mm</option>)}
           </select>
         </Field>
-        <Field label="STARTGEWICHT (g)"><input style={inputStyle} type="number" value={form.fullWeight} onChange={e=>set("fullWeight",parseInt(e.target.value)||0)}/></Field>
+        <Field label="STARTGEWICHT (g)"><input style={inputStyle} type="number" value={form.fullWeight??""} placeholder="z.B. 1000" onChange={e=>set("fullWeight",e.target.value===""?"":(parseInt(e.target.value)||0))}/></Field>
       </div>
     </div>
 
@@ -1137,9 +1143,10 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
 
     {/* Notes */}
     <Field label="NOTIZEN (z.B. Drucktemperatur, Besonderheiten)">
-      <textarea style={{...inputStyle,height:72,resize:"none",lineHeight:1.6}} value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Temp: 220-230°C, Hotbed: 60-70°C..."/>
+      <textarea style={{...inputStyle,height:72,resize:"none",lineHeight:1.6}} value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="z.B. Temp: 220-230°C, Hotbed: 60-70°C"/>
     </Field>
 
+    {speicherFehler&&<div style={{...mono,color:"#f87171",fontSize:11,textAlign:"center",lineHeight:1.5}}>{speicherFehler}</div>}
     <button onClick={handleSave} style={{
       background:MINT,color:"#000",border:"none",borderRadius:8,
       padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4
