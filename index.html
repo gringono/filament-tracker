@@ -63,7 +63,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v5.3";
+const VERSION="v6.0";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -86,6 +86,63 @@ function loadPrinters(){try{return JSON.parse(localStorage.getItem(PRINTERS_KEY)
 function savePrinters(p){localStorage.setItem(PRINTERS_KEY,JSON.stringify(p));}
 function loadScaleHost(){return localStorage.getItem(SCALE_HOST_KEY)||DEFAULT_SCALE_HOST;}
 function saveScaleHost(h){localStorage.setItem(SCALE_HOST_KEY,h||DEFAULT_SCALE_HOST);}
+
+// ── Server-Speicher (PocketBase im Heimnetz) ──
+// Läuft die App auf dem PocketBase-Server (Ordner pb_public), speichert sie dort,
+// damit alle Geräte denselben Stand haben. Auf GitHub o.ä. bleibt alles wie bisher
+// nur im Browser. localStorage dient im Server-Betrieb als Zwischenspeicher.
+async function pbVerfuegbar(){
+  try{const r=await fetch("/api/health",{cache:"no-store"});return r.ok;}catch{return false;}
+}
+async function pbAlle(tabelle){
+  let page=1,items=[];
+  for(;;){
+    const r=await fetch(`/api/collections/${tabelle}/records?perPage=500&page=${page}`,{cache:"no-store"});
+    if(!r.ok)throw new Error(`Laden ${tabelle}: HTTP ${r.status}`);
+    const j=await r.json();
+    items=items.concat(j.items||[]);
+    if(!j.totalPages||page>=j.totalPages)break;
+    page++;
+  }
+  return items;
+}
+async function pbSchreiben(methode,tabelle,id,daten){
+  const r=await fetch(`/api/collections/${tabelle}/records`+(id?`/${id}`:""),{
+    method:methode,
+    headers:daten?{"Content-Type":"application/json"}:{},
+    body:daten?JSON.stringify(daten):undefined,
+  });
+  if(!r.ok)throw new Error(`${methode} ${tabelle}: HTTP ${r.status}`);
+  return r.status===204?null:r.json();
+}
+// Filamente vom Server: sortiert nach Anlagedatum, damit die Reihenfolge auf allen Geräten gleich ist
+async function pbFilamenteLaden(){
+  const recs=await pbAlle("filamente");
+  const stand=new Map(), fils=[];
+  for(const r of recs){
+    if(!r.daten)continue;
+    const f={...r.daten,id:r.app_id};
+    stand.set(r.app_id,{rid:r.id,json:JSON.stringify(f)});
+    fils.push(f);
+  }
+  fils.sort((a,b)=>(a.addedAt||0)-(b.addedAt||0)||String(a.id).localeCompare(String(b.id)));
+  return {stand,fils};
+}
+// Wird von der App gesetzt, damit geänderte Materialien/Lagerorte zum Server gehen
+let einstellungenGeaendert=()=>{};
+
+// Text in die Zwischenablage – mit Ausweichweg, weil navigator.clipboard ohne HTTPS fehlt
+function kopieren(text){
+  if(navigator.clipboard&&window.isSecureContext)return navigator.clipboard.writeText(text);
+  return new Promise((ok,fehler)=>{
+    const el=document.createElement("textarea");
+    el.value=text;el.style.position="fixed";el.style.opacity="0";
+    document.body.appendChild(el);el.select();
+    const erfolg=document.execCommand("copy");
+    document.body.removeChild(el);
+    erfolg?ok():fehler(new Error("Kopieren nicht möglich"));
+  });
+}
 
 function genId(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36);}
 
@@ -326,7 +383,7 @@ function PrinterSelect({value,onChange,printers}){
 
 // ── Material Combo ──
 function loadCustomMats(){try{return JSON.parse(localStorage.getItem("custom_materials")||"[]");}catch{return[];}}
-function saveCustomMat(m){if(!m||MATERIALS.includes(m))return;const cur=loadCustomMats();if(!cur.includes(m)){localStorage.setItem("custom_materials",JSON.stringify([...cur,m]));}}
+function saveCustomMat(m){if(!m||MATERIALS.includes(m))return;const cur=loadCustomMats();if(!cur.includes(m)){localStorage.setItem("custom_materials",JSON.stringify([...cur,m]));einstellungenGeaendert();}}
 
 function MaterialCombo({value,onChange}){
   const [custom,setCustom]=useState(!MATERIALS.includes(value)&&!!value);
@@ -349,7 +406,7 @@ function MaterialCombo({value,onChange}){
 
 // ── Location Storage + Combo ──
 function loadCustomLocs(){try{return JSON.parse(localStorage.getItem("custom_locations")||"[]");}catch{return[];}}
-function saveCustomLoc(l){if(!l)return;const cur=loadCustomLocs();if(!cur.includes(l)){localStorage.setItem("custom_locations",JSON.stringify([...cur,l]));}}
+function saveCustomLoc(l){if(!l)return;const cur=loadCustomLocs();if(!cur.includes(l)){localStorage.setItem("custom_locations",JSON.stringify([...cur,l]));einstellungenGeaendert();}}
 
 function LocationCombo({value,onChange}){
   const locs=loadCustomLocs();
@@ -704,7 +761,7 @@ function RfidWriteModal({fil,onClose}){
   function copyPayload(){
     const {rest,...ohneRest}=payload; // "rest" ist nur für die Waage, nicht für den Tag
     const text=JSON.stringify(ohneRest);
-    navigator.clipboard.writeText(text)
+    kopieren(text)
       .then(()=>setStatus({type:"ok",msg:"✓ Kopiert — in NFC Tools: Schreiben → Datensatz hinzufügen → Text → einfügen."}))
       .catch(()=>setStatus({type:"err",msg:"Kopieren nicht möglich."}));
   }
@@ -1266,16 +1323,9 @@ function SettingsModal({onClose,printers,onSavePrinters,allFilaments,onImport}){
   }
   function handleCopy(){
     if(!key){return;}
-    navigator.clipboard.writeText(key).then(()=>{
+    kopieren(key).then(()=>{
       setCopied(true);setTimeout(()=>setCopied(false),2000);
-    }).catch(()=>{
-      // fallback for older iOS
-      const el=document.createElement("textarea");
-      el.value=key;document.body.appendChild(el);
-      el.select();document.execCommand("copy");
-      document.body.removeChild(el);
-      setCopied(true);setTimeout(()=>setCopied(false),2000);
-    });
+    }).catch(()=>{});
   }
 
   return <Modal title="⚙️ Einstellungen" onClose={onClose}>
@@ -1402,8 +1452,127 @@ function App(){
   const [filterMat,setFilterMat]=useState("Alle");
   const [search,setSearch]=useState("");
 
-  useEffect(()=>{saveFilaments(filaments);},[filaments]);
-  useEffect(()=>{savePrinters(printers);},[printers]);
+  // ── Server-Abgleich (nur wenn die App auf dem PocketBase-Server läuft) ──
+  const [server,setServer]=useState({modus:"pruefe"}); // pruefe | lokal | ok | fehler
+  const filsRef=useRef(filaments); filsRef.current=filaments;
+  const printersRef=useRef(printers); printersRef.current=printers;
+  const stand=useRef(new Map());       // app_id → {rid, json}: so liegt es gerade auf dem Server
+  const einstStand=useRef(null);       // {rid, json} der Einstellungen auf dem Server
+  const ungespeichert=useRef(false);   // lokale Änderungen, die noch nicht auf dem Server sind
+  const warteschlange=useRef(Promise.resolve());
+  const serverAktiv=server.modus==="ok"||server.modus==="fehler";
+
+  // Schreibvorgänge nacheinander ausführen, nie parallel
+  function inWarteschlange(arbeit){
+    warteschlange.current=warteschlange.current.then(arbeit).catch(e=>setServer({modus:"fehler",msg:e.message}));
+    return warteschlange.current;
+  }
+  // Nur Unterschiede schicken: neue anlegen, geänderte aktualisieren, gelöschte entfernen
+  function filamenteHochladen(){
+    return inWarteschlange(async()=>{
+      const map=stand.current, ids=new Set();
+      for(const f of filsRef.current){
+        ids.add(f.id);
+        const json=JSON.stringify(f), alt=map.get(f.id);
+        if(!alt){const r=await pbSchreiben("POST","filamente",null,{app_id:f.id,daten:f});map.set(f.id,{rid:r.id,json});}
+        else if(alt.json!==json){await pbSchreiben("PATCH","filamente",alt.rid,{daten:f});alt.json=json;}
+      }
+      for(const [appId,v] of [...map]){
+        if(!ids.has(appId)){await pbSchreiben("DELETE","filamente",v.rid);map.delete(appId);}
+      }
+      ungespeichert.current=false;
+      setServer(s=>s.modus==="ok"?s:{modus:"ok"});
+    });
+  }
+  function einstellungenHochladen(){
+    return inWarteschlange(async()=>{
+      const daten={drucker:printersRef.current,materialien:loadCustomMats(),lagerorte:loadCustomLocs()};
+      const json=JSON.stringify(daten);
+      if(einstStand.current&&einstStand.current.json===json)return;
+      if(einstStand.current){await pbSchreiben("PATCH","einstellungen",einstStand.current.rid,{daten});einstStand.current.json=json;}
+      else{const r=await pbSchreiben("POST","einstellungen",null,{name:"allgemein",daten});einstStand.current={rid:r.id,json};}
+    });
+  }
+  // Einstellungen vom Server übernehmen: Drucker ersetzen, Materialien/Lagerorte zusammenführen
+  function einstellungenUebernehmen(rec){
+    const d=rec.daten||{};
+    if(Array.isArray(d.drucker)&&d.drucker.length)setPrinters(d.drucker);
+    const vereinen=(key,liste)=>{
+      if(!Array.isArray(liste))return;
+      let cur=[];try{cur=JSON.parse(localStorage.getItem(key)||"[]");}catch{}
+      localStorage.setItem(key,JSON.stringify([...new Set([...cur,...liste])]));
+    };
+    vereinen("custom_materials",d.materialien);
+    vereinen("custom_locations",d.lagerorte);
+    einstStand.current={rid:rec.id,json:JSON.stringify(d)};
+  }
+
+  // Beim Start: Läuft die App auf dem Server? Dann Stand vom Server holen.
+  useEffect(()=>{(async()=>{
+    if(!(await pbVerfuegbar())){setServer({modus:"lokal"});return;}
+    try{
+      const [{stand:s,fils},einst]=await Promise.all([pbFilamenteLaden(),pbAlle("einstellungen")]);
+      const rec=einst.find(r=>r.name==="allgemein");
+      if(rec)einstellungenUebernehmen(rec);
+      stand.current=s;
+      if(s.size===0&&filsRef.current.length>0){
+        // Server noch leer, dieses Gerät hat aber Daten → als Startbestand hochladen?
+        if(!window.confirm(`Der Server ist noch leer. Die ${filsRef.current.length} Filamente dieses Geräts hochladen?`))setFilaments([]);
+      }else{
+        setFilaments(fils);
+      }
+      einstellungenGeaendert=()=>einstellungenHochladen();
+      setServer({modus:"ok"});
+    }catch(e){setServer({modus:"fehler",msg:e.message});}
+  })();},[]);
+
+  // Speichern: immer lokal (Zwischenspeicher), im Server-Betrieb zusätzlich zum Server
+  useEffect(()=>{
+    saveFilaments(filaments);
+    if(!serverAktiv)return;
+    ungespeichert.current=true;
+    const t=setTimeout(filamenteHochladen,400);
+    return ()=>clearTimeout(t);
+  },[filaments,serverAktiv]);
+  useEffect(()=>{
+    savePrinters(printers);
+    if(!serverAktiv)return;
+    const t=setTimeout(einstellungenHochladen,400);
+    return ()=>clearTimeout(t);
+  },[printers,serverAktiv]);
+
+  // Änderungen anderer Geräte holen: alle 15 s und sobald die App wieder im Vordergrund ist
+  useEffect(()=>{
+    if(!serverAktiv)return;
+    let laeuft=false;
+    async function holen(){
+      if(laeuft)return;
+      laeuft=true;
+      try{
+        if(ungespeichert.current){await filamenteHochladen();return;}
+        const [{stand:s,fils},einst]=await Promise.all([pbFilamenteLaden(),pbAlle("einstellungen")]);
+        if(ungespeichert.current)return;   // währenddessen lokal geändert → nichts überschreiben
+        stand.current=s;
+        if(JSON.stringify(fils)!==JSON.stringify(filsRef.current))setFilaments(fils);
+        const rec=einst.find(r=>r.name==="allgemein");
+        if(rec&&(!einstStand.current||JSON.stringify(rec.daten)!==einstStand.current.json))einstellungenUebernehmen(rec);
+        setServer(x=>x.modus==="ok"?x:{modus:"ok"});
+      }catch(e){
+        setServer({modus:"fehler",msg:e.message});
+      }finally{
+        laeuft=false;
+      }
+    }
+    const iv=setInterval(holen,15000);
+    const sichtbar=()=>{if(document.visibilityState==="visible")holen();};
+    document.addEventListener("visibilitychange",sichtbar);
+    window.addEventListener("focus",sichtbar);
+    return ()=>{
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange",sichtbar);
+      window.removeEventListener("focus",sichtbar);
+    };
+  },[serverAktiv]);
 
   function handleSave(form){
     if(form.id){
@@ -1547,6 +1716,8 @@ function App(){
             {uniqueMats} Materialien · {totalSpools} Spulen
             {lowCount>0&&<span style={{color:"#f87171"}}> · {lowCount} fast leer</span>}
             {inUseCount>0&&<span style={{color:MINT}}> · {inUseCount} in Drucker</span>}
+            {server.modus==="ok"&&<span style={{color:"#60a5fa"}}> · ⇅ Server</span>}
+            {server.modus==="fehler"&&<span title={server.msg} style={{color:"#f87171"}}> · ⚠ Server nicht erreichbar</span>}
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
