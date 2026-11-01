@@ -63,7 +63,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v6.0";
+const VERSION="v6.1";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1540,6 +1540,15 @@ function App(){
     const t=setTimeout(einstellungenHochladen,400);
     return ()=>clearTimeout(t);
   },[printers,serverAktiv]);
+
+  // Lagerorte und eigene Materialien aus den vorhandenen Spulen in die Auswahllisten übernehmen
+  // (z.B. nach einem Backup-Import, der diese Listen nicht enthält)
+  useEffect(()=>{
+    for(const f of filaments){
+      if(f.material)saveCustomMat(f.material);
+      for(const s of f.stock||[])if(s.location&&s.location!=="Lager")saveCustomLoc(s.location);
+    }
+  },[filaments]);
 
   // Änderungen anderer Geräte holen: alle 15 s und sobald die App wieder im Vordergrund ist
   useEffect(()=>{
