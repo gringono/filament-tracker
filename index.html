@@ -66,7 +66,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v6.3";
+const VERSION="v6.4";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -930,7 +930,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
 
   const fullW=form.fullWeight||1000;
   // kleines Feld für ein eigenes Startgewicht der Spule (leer = Startgewicht des Filaments)
-  const startFeld=(sp,update)=><label style={{...mono,fontSize:9,color:TEXT_MUTED,display:"flex",alignItems:"center",gap:4}}>Start
+  const startFeld=(sp,update)=><label style={{...mono,fontSize:9,color:TEXT_MUTED,display:"flex",alignItems:"center",gap:4}}>START
     <input type="number" value={sp.startWeight||""} placeholder={String(fullW)}
       onChange={e=>update(sp.id,"startWeight",parseInt(e.target.value)||undefined)}
       style={{...inputStyle,width:62,padding:"3px 5px",fontSize:10}}/>g</label>;
@@ -1024,8 +1024,8 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
     <div style={{background:SURFACE2,borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:10}}>
       <div style={sectionHead}>FILAMENT-INFO</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <Field label="HERSTELLER"><input style={inputStyle} value={form.brand} onChange={e=>set("brand",e.target.value)} placeholder="Bambu Lab"/></Field>
-        <Field label="FARBE"><input style={inputStyle} value={form.colorName} onChange={e=>set("colorName",e.target.value)} placeholder="Black"/></Field>
+        <Field label="HERSTELLER"><input style={inputStyle} value={form.brand} onChange={e=>set("brand",e.target.value)} placeholder="z.B. Bambu Lab"/></Field>
+        <Field label="FARBE"><input style={inputStyle} value={form.colorName} onChange={e=>set("colorName",e.target.value)} placeholder="z.B. Black"/></Field>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Field label="MATERIAL"><MaterialCombo value={form.material} onChange={v=>set("material",v)}/></Field>
@@ -1065,9 +1065,11 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
       <div style={{...mono,color:"#4ade80",fontSize:11,letterSpacing:"0.1em",fontWeight:700,marginBottom:2}}>📦 LAGER ({form.stock.length} Spule{form.stock.length!==1?"n":""})</div>
       {form.stock.map(s=>(
         <div key={s.id} style={{background:"#061209",border:"1px solid #1a5c2a",borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <div style={{flex:1}}><LocationCombo value={s.location} onChange={v=>updateStock(s.id,"location",v)}/></div>
-            <input style={{...inputStyle,width:90}} type="number" value={s.weight} onChange={e=>updateStock(s.id,"weight",parseInt(e.target.value)||0)} placeholder="Rest g" title="Restgewicht (g)"/>
+          <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
+            <div style={{flex:1,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>LAGERORT</span>
+              <LocationCombo value={s.location} onChange={v=>updateStock(s.id,"location",v)}/></div>
+            <label style={{width:90,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>REST (g)</span>
+              <input style={{...inputStyle,width:90}} type="number" value={s.weight} onChange={e=>updateStock(s.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm" title="Restgewicht (g)"/></label>
             <button onClick={()=>removeStock(s.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>
           <div style={{display:"flex",justifyContent:"space-between"}}>
@@ -1087,11 +1089,11 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
       <div style={{...mono,color:"#60a5fa",fontSize:11,letterSpacing:"0.1em",fontWeight:700,marginBottom:2}}><Icon3D color="#60a5fa" size={12}/>IN GEBRAUCH ({form.inUse.length} Spule{form.inUse.length!==1?"n":""})</div>
       {form.inUse.map(u=>(
         <div key={u.id} style={{background:"#030a16",border:"1px solid #1a3f6e",borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <div style={{flex:1}}>
-              <PrinterSelect value={u.printer} onChange={v=>updateInUse(u.id,"printer",v)} printers={printers}/>
-            </div>
-            <input style={{...inputStyle,width:90}} type="number" value={u.weight} onChange={e=>updateInUse(u.id,"weight",parseInt(e.target.value)||0)} placeholder="Rest g" title="Restgewicht (g)"/>
+          <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
+            <div style={{flex:1,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>DRUCKER</span>
+              <PrinterSelect value={u.printer} onChange={v=>updateInUse(u.id,"printer",v)} printers={printers}/></div>
+            <label style={{width:90,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>REST (g)</span>
+              <input style={{...inputStyle,width:90}} type="number" value={u.weight} onChange={e=>updateInUse(u.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm" title="Restgewicht (g)"/></label>
             <button onClick={()=>removeInUse(u.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
