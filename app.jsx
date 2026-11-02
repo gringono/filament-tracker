@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.11";
+const VERSION="v7.12";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -2147,7 +2147,7 @@ function App(){
     {screen==="home"&&<div style={{padding:"calc(18px + env(safe-area-inset-top)) 16px 0"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:26,fontWeight:700,letterSpacing:"-0.02em",lineHeight:1.1}}>Werkstatt</div>
+          <div style={{fontFamily:"'Kaushan Script',cursive",fontSize:33,lineHeight:1.15,whiteSpace:"nowrap"}}>Filament <span style={{color:"#fb923c"}}>Tracker</span></div>
           <div style={{fontSize:12,color:TEXT_DIM,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             <span>{totalSpools} Spulen · {alleDrucker.length} Drucker</span>
             {server.modus==="ok"&&<span title="Mit dem Server verbunden" style={{width:7,height:7,borderRadius:9,background:"#4ade80",display:"inline-block"}}/>}

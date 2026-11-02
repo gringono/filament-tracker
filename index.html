@@ -8,10 +8,13 @@
   <meta name="apple-mobile-web-app-title" content="Filament-Tracker"/>
   <meta name="theme-color" content="#0d0d10"/>
   <link rel="manifest" href="./manifest.json"/>
+  <link rel="preload" href="./vendor/kaushan-script.woff2" as="font" type="font/woff2" crossorigin/>
   <link rel="apple-touch-icon" href="./icon-192.png"/>
   <title>Filament-Tracker</title>
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'"/>
   <style>
+    /* Titelschrift (Google Fonts, SIL Open Font License) – liegt lokal im Ordner vendor */
+    @font-face{font-family:'Kaushan Script';src:url('./vendor/kaushan-script.woff2') format('woff2');font-display:swap;}
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
     html,body{margin:0;padding:0;background:#08080a;color:#f4f4f5;font-family:'Inter',system-ui,-apple-system,sans-serif;overscroll-behavior:none;overflow-x:hidden;width:100%;max-width:100%;-webkit-font-smoothing:antialiased;}
     /* clip statt hidden: schneidet seitlich ab, macht body aber nicht zu einem eigenen
@@ -34,7 +37,7 @@
 <div id="root"></div>
 <script src="./vendor/react.production.min.js"></script>
 <script src="./vendor/react-dom.production.min.js"></script>
-<script src="./app.js?v=7.11"></script>
+<script src="./app.js?v=7.12"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js");}</script>
 </body>
 </html>
