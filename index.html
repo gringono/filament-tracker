@@ -67,7 +67,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.1";
+const VERSION="v7.2";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1974,10 +1974,24 @@ function App(){
           </div>}
         </div>}
 
-        <div style={{display:"flex",gap:6,margin:"18px -16px 14px",padding:"0 16px",overflowX:"auto",scrollbarWidth:"none",alignItems:"center"}}>
+        {/* Filter: Alle · Nachkaufen · Material als Auswahlliste (passt auch bei vielen Materialien) */}
+        <div style={{display:"flex",gap:6,margin:"18px 0 14px",alignItems:"center"}}>
           <button onClick={()=>setFilter("Alle")} style={chip(filter==="Alle")}>Alle</button>
           {nachkaufen.length>0&&<button onClick={()=>setFilter("Nachkaufen")} style={{...chip(filter==="Nachkaufen"),...(filter!=="Nachkaufen"&&{color:ROT})}}>Nachkaufen {nachkaufen.length}</button>}
-          {usedMats.map(m=><button key={m} onClick={()=>setFilter(m)} style={chip(filter===m)}>{m}</button>)}
+          {(()=>{
+            const matAktiv=usedMats.includes(filter);
+            return <div style={{position:"relative",flex:1,minWidth:0,display:"flex",justifyContent:"flex-end"}}>
+              <div style={{...chip(matAktiv),display:"flex",alignItems:"center",gap:6,maxWidth:"100%",pointerEvents:"none"}}>
+                <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{matAktiv?filter:"Material"}</span>
+                <span style={{fontSize:10}}>▾</span>
+              </div>
+              <select aria-label="Material wählen" value={matAktiv?filter:""} onChange={e=>setFilter(e.target.value||"Alle")}
+                style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",fontSize:16}}>
+                <option value="">Alle Materialien</option>
+                {usedMats.map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>;
+          })()}
         </div>
 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
