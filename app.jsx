@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.15";
+const VERSION="v7.16";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -833,13 +833,15 @@ function SlotZelle({slot,size,zeigeName,kompakt,onClick}){
   const pct=b?calcPct(b.spool.weight,startG(b.fil,b.spool)):0;
   const rot=b&&pct<KNAPP;
   return <button onClick={onClick} title={b?`${slot.name}: ${b.fil.brand} ${b.fil.colorName}`:`${slot.name}: leer`}
-    style={{...bloss,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
+    style={{...bloss,width:"100%",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
     <Ring hex={b?.fil.colorHex} pct={pct} size={size} dicke={kompakt?3:size>40?5:4} leer={!b}>
       {zeigeName&&!kompakt&&slot.name.length<=3&&<span style={{fontSize:10,color:TEXT_DIM,fontWeight:600}}>{slot.name}</span>}
     </Ring>
     {!kompakt&&<span style={{fontSize:11,color:rot?ROT:b?TEXT_DIM:TEXT_MUTED,whiteSpace:"nowrap",fontWeight:rot?700:400}}>
       {b?(size>40?`${b.spool.weight} g`:b.spool.weight):"leer"}</span>}
-    {!kompakt&&<span style={{fontSize:10,color:TEXT_MUTED,maxWidth:"100%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{b?b.fil.material:" "}</span>}
+    {/* Material: lange Namen ("High Speed PLA+") auf bis zu zwei Zeilen umbrechen statt überlappen */}
+    {!kompakt&&<span style={{fontSize:10,lineHeight:1.2,color:TEXT_MUTED,width:"100%",textAlign:"center",overflowWrap:"anywhere",
+      display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",minHeight:"2.4em"}}>{b?b.fil.material:""}</span>}
   </button>;
 }
 function DruckerKarte({name,plan,onSlot,onOhneSlot}){
@@ -867,15 +869,16 @@ function DruckerKarte({name,plan,onSlot,onOhneSlot}){
         {plan.extra.length>0&&<span style={{fontSize:11,color:"#facc15"}}>+{plan.extra.length} ohne Slot</span>}
       </button>
       :<>
-        {plan.gruppen.map((g,gi)=>{
-          const gross=g.slots.length<=4;
-          return <div key={gi} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-            {mehrereGruppen&&<span style={{width:28,fontSize:11,color:TEXT_MUTED,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis"}}>{g.name}</span>}
-            <div style={{flex:1,display:"grid",gridTemplateColumns:`repeat(${Math.max(g.slots.length,4)},minmax(0,1fr))`,gap:4,justifyItems:"center"}}>
-              {g.slots.map(sl=><SlotZelle key={sl.name} slot={sl} size={gross?46:32}
+        {/* höchstens 4 Slots pro Reihe (z.B. INDX mit 8 Slots → 2 Reihen), damit Ringe und Materialnamen Platz haben */}
+        {plan.gruppen.flatMap((g,gi)=>{
+          const reihen=[];for(let i=0;i<g.slots.length;i+=4)reihen.push(g.slots.slice(i,i+4));
+          return reihen.map((reihe,ri)=><div key={gi+"-"+ri} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:8}}>
+            {mehrereGruppen&&<span style={{width:28,fontSize:11,color:TEXT_MUTED,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",paddingTop:16}}>{ri===0?g.name:""}</span>}
+            <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:4,justifyItems:"center"}}>
+              {reihe.map(sl=><SlotZelle key={sl.name} slot={sl} size={46}
                 zeigeName={g.slots.length>1||mehrereGruppen} onClick={()=>onSlot(name,sl)}/>)}
             </div>
-          </div>;
+          </div>);
         })}
         {plan.extra.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,marginTop:2,marginBottom:4}}>
           <div style={{fontSize:11,color:"#facc15",marginBottom:6}}>Ohne Slot – antippen und Slot wählen</div>
