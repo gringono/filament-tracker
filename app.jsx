@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.7";
+const VERSION="v7.9";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -532,7 +532,7 @@ function QRScannerScreen({filaments,onOpen}){
   const zeilen=matched.flatMap(f=>f.stock.filter(s=>(s.location||"").toLowerCase()===result.toLowerCase()).map(s=>({f,s})));
   return <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
     {!result&&live&&<>
-      <div style={{fontSize:14,color:TEXT_DIM,textAlign:"center"}}>QR-Code am Regal in den Rahmen halten</div>
+      <div style={{fontSize:14,color:TEXT_DIM,textAlign:"center"}}>QR-Code am Lagerplatz in den Rahmen halten</div>
       <div id={divId} style={{borderRadius:24,overflow:"hidden",background:"#000",boxShadow:`0 0 0 1px ${BORDER}`}}/>
       {error
         ?<div style={{color:ROT,fontSize:13,textAlign:"center"}}>{error}</div>
@@ -543,7 +543,7 @@ function QRScannerScreen({filaments,onOpen}){
       <label style={{background:SURFACE,borderRadius:24,padding:"36px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:12,cursor:"pointer",textAlign:"center"}}>
         <span style={{color:TEXT}}><Icon name="qr" size={56} stroke={1.4}/></span>
         <span style={{fontSize:17,fontWeight:700}}>{pruefe?"Erkenne QR-Code…":"QR-Code fotografieren"}</span>
-        <span style={{fontSize:13,color:TEXT_DIM}}>Kamera öffnet sich – QR-Code am Regal formatfüllend aufnehmen</span>
+        <span style={{fontSize:13,color:TEXT_DIM}}>Kamera öffnet sich – QR-Code am Lagerplatz formatfüllend aufnehmen</span>
         <input type="file" accept="image/*" capture="environment" onChange={fotoGewaehlt} style={{display:"none"}}/>
       </label>
       <div id={divId} style={{display:"none"}}/>
@@ -555,7 +555,7 @@ function QRScannerScreen({filaments,onOpen}){
         <span style={{color:TEXT_DIM}}><Icon name="box" size={28}/></span>
         <div style={{flex:1}}>
           <div style={{fontSize:20,fontWeight:700}}>{result}</div>
-          <div style={{fontSize:12,color:TEXT_DIM}}>{zeilen.length} Spule{zeilen.length!==1?"n":""} in diesem Fach</div>
+          <div style={{fontSize:12,color:TEXT_DIM}}>{zeilen.length} Spule{zeilen.length!==1?"n":""} an diesem Lagerplatz</div>
         </div>
       </div>
 
@@ -579,7 +579,7 @@ function QRScannerScreen({filaments,onOpen}){
         </button>;
       })}
 
-      <button onClick={startScanner} style={{background:SURFACE2,color:TEXT,border:"none",borderRadius:14,padding:"13px 0",cursor:"pointer",fontSize:14,fontWeight:600,width:"100%",fontFamily:"inherit"}}>Nächstes Fach scannen</button>
+      <button onClick={startScanner} style={{background:SURFACE2,color:TEXT,border:"none",borderRadius:14,padding:"13px 0",cursor:"pointer",fontSize:14,fontWeight:600,width:"100%",fontFamily:"inherit"}}>Nächsten Lagerplatz scannen</button>
     </>}
   </div>;
 }
@@ -1068,7 +1068,7 @@ function ScanSheet({filaments,onGefunden,onNeu,onQR,onClose}){
       {titel(`${fil.brand} ${fil.colorName}`,`${fil.material} · ${spulenVon(fil).length} Spulen`)}
     </button>)}
     <button onClick={onNeu} style={option}><Icon name="plus" size={26}/>{titel("Neue Spule anlegen","Etikett scannen oder von Hand eintragen")}</button>
-    <button onClick={onQR} style={option}><Icon name="qr" size={26}/>{titel("Regal-QR scannen","Zeigt, was in diesem Fach liegt")}</button>
+    <button onClick={onQR} style={option}><Icon name="qr" size={26}/>{titel("QR-Code Lagerplatz scannen","Zeigt, was an diesem Lagerplatz liegt")}</button>
   </Modal>;
 }
 
@@ -1144,7 +1144,8 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
     // Schwung: kurz nachlaufen lassen, dann einrasten
     const nachlauf=Math.max(-200,Math.min(200,d.v*220));
     const ziel=naechste(d.rot+nachlauf);
-    if(idxVon(ziel)!==d.idx)haptik();
+    // iPhone erlaubt das Tick nur beim Loslassen (nicht während der Bewegung) → beim Einrasten immer klicken
+    haptik();
     setRot(ziel);
   }
 
@@ -2190,7 +2191,7 @@ function App(){
     {screen==="qr"&&<div style={{paddingTop:"env(safe-area-inset-top)"}}>
       <div style={{display:"flex",alignItems:"center",gap:6,padding:"14px 12px 0"}}>
         <button onClick={()=>zeige("home")} aria-label="Zurück" style={{...bloss,padding:6,color:TEXT_DIM}}><Icon name="back" size={24}/></button>
-        <span style={{fontSize:17,fontWeight:700}}>Regal-QR</span>
+        <span style={{fontSize:17,fontWeight:700}}>QR-Code Lagerplatz scannen</span>
       </div>
       <QRScannerScreen filaments={filaments} onOpen={openDetail}/>
     </div>}
