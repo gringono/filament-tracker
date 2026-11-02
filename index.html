@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Filament-Tracker"/>
@@ -19,7 +19,8 @@
     body{overflow-x:clip;}
     #root{width:100%;min-height:100vh;}
     img,svg,video,canvas{max-width:100%;}
-    input,select,textarea{max-width:100%;}
+    /* min-width:0: Eingabefelder dürfen in Zeilen schrumpfen, sonst wird die Seite breiter als das Handy */
+    input,select,textarea{max-width:100%;min-width:0;}
     input,select,button,textarea{font-family:inherit;}
     input[type=number]::-webkit-inner-spin-button{opacity:1;}
     ::-webkit-scrollbar{width:4px;height:0;}
@@ -33,7 +34,7 @@
 <div id="root"></div>
 <script src="./vendor/react.production.min.js"></script>
 <script src="./vendor/react-dom.production.min.js"></script>
-<script src="./app.js?v=7.4"></script>
+<script src="./app.js?v=7.5"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js");}</script>
 </body>
 </html>

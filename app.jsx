@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.4";
+const VERSION="v7.5";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -352,7 +352,7 @@ function PhotoButton({label,onChange,loading}){
 function Modal({title,children,onClose}){
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
     <div style={{background:SURFACE,borderTop:`1px solid ${BORDER}`,borderRadius:"26px 26px 0 0",
-      width:"100%",maxWidth:520,maxHeight:"92vh",overflowY:"auto",color:TEXT,
+      width:"100%",maxWidth:520,maxHeight:"92vh",overflowY:"auto",overflowX:"hidden",color:TEXT,
       padding:"10px 18px calc(24px + env(safe-area-inset-bottom))",display:"flex",flexDirection:"column",gap:12}}>
       <div style={{width:38,height:5,borderRadius:5,background:"#3f3f46",alignSelf:"center",marginBottom:2}}/>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1035,6 +1035,24 @@ function ScanSheet({filaments,onGefunden,onNeu,onQR,onClose}){
   </Modal>;
 }
 
+// Spürbares Klicken: Android über vibrate(); das iPhone kennt das nicht, Safari (ab iOS 18)
+// gibt aber beim Umschalten eines <input type="checkbox" switch> ein kurzes Tick – das nutzen wir.
+let haptikLabel=null;
+function haptik(){
+  try{
+    if(navigator.vibrate){navigator.vibrate(4);return;}
+    if(!haptikLabel){
+      haptikLabel=document.createElement("label");
+      const cb=document.createElement("input");
+      cb.type="checkbox";cb.setAttribute("switch","");
+      haptikLabel.appendChild(cb);
+      haptikLabel.style.cssText="position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none";
+      document.body.appendChild(haptikLabel);
+    }
+    haptikLabel.click();
+  }catch{}
+}
+
 // ── Material-Auswahl als Pappspule ──
 // Drehen bis das Material oben (12 Uhr) steht; beim Loslassen rastet das Rad ein.
 // Antippen eines Materials dreht es nach oben, Antippen der Nabe übernimmt.
@@ -1046,15 +1064,12 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
   const [rot,setRot]=useState(-startIdx*step-60);   // startet leicht verdreht und dreht sich beim Öffnen ein
   const [zieht,setZieht]=useState(false);
   const [offen,setOffen]=useState(false);
-  const radRef=useRef(null), drag=useRef(null), letzter=useRef(null);
+  const radRef=useRef(null), drag=useRef(null);
   useEffect(()=>{const t=setTimeout(()=>{setOffen(true);setRot(-startIdx*step);},30);return ()=>clearTimeout(t);},[]);
 
-  const index=((Math.round(-rot/step)%n)+n)%n;
+  const idxVon=r=>((Math.round(-r/step)%n)+n)%n;
+  const index=idxVon(rot);
   const akt=eintraege[index];
-  useEffect(()=>{
-    if(letzter.current!==null&&letzter.current!==index){try{navigator.vibrate&&navigator.vibrate(4);}catch{}}
-    letzter.current=index;
-  },[index]);
 
   function winkel(e){const r=radRef.current.getBoundingClientRect();return Math.atan2(e.clientY-(r.top+r.height/2),e.clientX-(r.left+r.width/2))*180/Math.PI;}
   function abstand(e){const r=radRef.current.getBoundingClientRect();return Math.hypot(e.clientX-(r.left+r.width/2),e.clientY-(r.top+r.height/2));}
@@ -1064,7 +1079,7 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
   }
   function down(e){
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current={w:winkel(e),rot,t:performance.now(),v:0,weg:0};
+    drag.current={w:winkel(e),rot,t:performance.now(),v:0,weg:0,idx:idxVon(rot)};
     setZieht(true);
   }
   function move(e){
@@ -1073,6 +1088,8 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
     if(delta>180)delta-=360;if(delta<-180)delta+=360;
     const jetzt=performance.now();
     d.v=delta/Math.max(1,jetzt-d.t);d.t=jetzt;d.w=w;d.rot+=delta;d.weg+=Math.abs(delta);
+    // bei jedem Material, das über 12 Uhr läuft, einmal klicken (direkt im Touch-Ereignis, sonst blockt iOS)
+    const i=idxVon(d.rot);if(i!==d.idx){d.idx=i;haptik();}
     setRot(d.rot);
   }
   function up(e){
@@ -1084,12 +1101,14 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
       const a=winkel(e)+90-d.rot;                       // Winkel im Rad, 0 = oben
       const i=((Math.round(a/step)%n)+n)%n;
       let diff=(-i*step-d.rot)%360;if(diff>180)diff-=360;if(diff<-180)diff+=360;
-      setRot(naechste(d.rot+diff));
+      setRot(naechste(d.rot+diff));haptik();
       return;
     }
     // Schwung: kurz nachlaufen lassen, dann einrasten
     const nachlauf=Math.max(-200,Math.min(200,d.v*220));
-    setRot(naechste(d.rot+nachlauf));
+    const ziel=naechste(d.rot+nachlauf);
+    if(idxVon(ziel)!==d.idx)haptik();
+    setRot(ziel);
   }
 
   const schrift=n<=8?16:n<=14?14:12;
@@ -1542,7 +1561,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
 }
 
 // ── Settings Modal ──
-function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSaveEinheiten,allFilaments,onImport}){
+function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSaveEinheiten,onSaveOrte,allFilaments,onImport}){
   const [key,setKey]=useState(loadApiKey());
   const [saved,setSaved]=useState(false);
   const [copied,setCopied]=useState(false);
@@ -1550,6 +1569,13 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
   const [printerList,setPrinterList]=useState(printers.join("\n"));
   const [scaleHost,setScaleHost]=useState(loadScaleHost());
   const [einh,setEinh]=useState(einheiten);
+  // Lagerorte: gespeicherte Liste + alle, die an Spulen vorkommen. alt = bisheriger Name (null = neu)
+  const [orte,setOrte]=useState(()=>{
+    const namen=[...new Set([...loadCustomLocs(),...allFilaments.flatMap(f=>(f.stock||[]).map(s=>s.location))])]
+      .filter(o=>o&&o!=="Lager").sort((a,b)=>a.localeCompare(b,"de"));
+    return namen.map(o=>({alt:o,neu:o}));
+  });
+  const ortAnzahl=o=>allFilaments.reduce((a,f)=>a+(f.stock||[]).filter(s=>s.location===o).length,0);
   const druckerNeu=printerList.split("\n").map(p=>p.trim()).filter(Boolean);
 
   function handleSave(){
@@ -1558,6 +1584,7 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
     onSavePrinters(druckerNeu);
     // nur Einheiten der aktuellen Drucker behalten
     onSaveEinheiten(Object.fromEntries(druckerNeu.filter(p=>einh[p]).map(p=>[p,einh[p]])));
+    onSaveOrte(orte.map(o=>({alt:o.alt,neu:o.neu.trim()})));
     setSaved(true);setTimeout(()=>setSaved(false),1500);
   }
   function handleCopy(){
@@ -1580,6 +1607,23 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
     </Field>
     <Field label="SLOTS JE DRUCKER (AMS, INDX, EXTERNE SPULE)">
       <EinheitenEditor drucker={druckerNeu} einheiten={einh} setEinheiten={setEinh}/>
+    </Field>
+    <Field label="LAGERORTE (UMBENENNEN ÄNDERT ALLE SPULEN MIT)">
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {orte.map((o,i)=>{
+          const anzahl=o.alt?ortAnzahl(o.alt):0;
+          return <div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input style={{...inputStyle,flex:1}} value={o.neu} placeholder="z.B. Regal A"
+              onChange={e=>setOrte(l=>l.map((x,j)=>j===i?{...x,neu:e.target.value}:x))}/>
+            <span style={{fontSize:11,color:TEXT_MUTED,width:58,textAlign:"right",flexShrink:0}}>{anzahl} Spule{anzahl!==1?"n":""}</span>
+            {anzahl===0
+              ?<button onClick={()=>setOrte(l=>l.filter((_,j)=>j!==i))} aria-label="Lagerort löschen" style={{...bloss,color:ROT,padding:"0 4px",flexShrink:0}}><Icon name="trash" size={16}/></button>
+              :<span style={{width:24,flexShrink:0}}/>}
+          </div>;
+        })}
+        <button onClick={()=>setOrte(l=>[...l,{alt:null,neu:""}])} style={{...bloss,fontSize:12,color:TEXT_DIM,border:`1px dashed ${BORDER}`,borderRadius:8,padding:"8px 0",width:"100%",textAlign:"center"}}>+ Lagerort</button>
+        <div style={{fontSize:11,color:TEXT_MUTED}}>Orte mit Spulen lassen sich nur umbenennen – zum Löschen erst die Spulen umlagern.</div>
+      </div>
     </Field>
     <div style={{...mono,fontSize:11,lineHeight:1.8,background:"#0d0d10",border:"1px solid #2a2a31",borderRadius:12,padding:"10px 12px"}}>
       <div style={{color:MINT,fontWeight:700,marginBottom:4}}>API-Key (Anthropic)</div>
@@ -1718,7 +1762,8 @@ function App(){
       localStorage.setItem(key,JSON.stringify([...new Set([...cur,...liste])]));
     };
     vereinen("custom_materials",d.materialien);
-    vereinen("custom_locations",d.lagerorte);
+    // Lagerorte vom Server ersetzen die eigenen (sonst kämen gelöschte/umbenannte Orte zurück)
+    if(Array.isArray(d.lagerorte))localStorage.setItem("custom_locations",JSON.stringify(d.lagerorte));
     einstStand.current={rid:rec.id,json:JSON.stringify(d)};
   }
 
@@ -1889,6 +1934,14 @@ function App(){
 
   function handleAddPrinter(list){
     setPrinters(list);
+  }
+  // Lagerorte aus den Einstellungen: umbenannte Orte an allen Spulen ändern, Liste ersetzen
+  function orteSpeichern(zeilen){
+    const umbenannt=new Map(zeilen.filter(z=>z.alt&&z.neu&&z.neu!==z.alt).map(z=>[z.alt,z.neu]));
+    if(umbenannt.size)setFilaments(fs=>fs.map(f=>(f.stock||[]).some(s=>umbenannt.has(s.location))
+      ?{...f,stock:f.stock.map(s=>umbenannt.has(s.location)?{...s,location:umbenannt.get(s.location)}:s)}:f));
+    localStorage.setItem("custom_locations",JSON.stringify([...new Set(zeilen.map(z=>z.neu).filter(Boolean))]));
+    einstellungenGeaendert();
   }
 
   // ── Ansichten ──
@@ -2146,7 +2199,7 @@ function App(){
     {modal==="add"&&<FilamentModal onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
     {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} einheiten={einheiten}
       statistik={{kg:gesamtKg,spulen:totalSpools,filamente:total}}
-      onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} onSaveEinheiten={setEinheiten}
+      onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} onSaveEinheiten={setEinheiten} onSaveOrte={orteSpeichern}
       allFilaments={filaments} onImport={(fils,prts,einh)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);if(einh)setEinheiten(einh);setModal(null);}}/>}
     {modal&&typeof modal==="object"&&
       <FilamentModal initial={modal} onSave={handleSave} onDelete={id=>{setFilaments(f=>f.filter(x=>x.id!==id));setModal(null);zeige("home");}} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
