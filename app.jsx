@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.12";
+const VERSION="v7.14";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -482,16 +482,47 @@ function QRScannerScreen({filaments,onOpen}){
     sk.onerror=()=>{setPruefe(false);setError("QR-Scanner konnte nicht geladen werden.");};
     document.head.appendChild(sk);
   }
+  // Handyfotos (12 MP) sind für die Erkennung zu groß und zu langsam → verkleinern und
+  // nacheinander mehrere Größen probieren, bis der Code gefunden ist.
+  // umkehren: für gelaserte Codes (hell auf dunkel, z.B. silber auf schwarzem Alu) – die Erkennung
+  // kennt nur dunkel auf hell. Dabei auch in Graustufen wandeln und den Kontrast strecken.
+  async function verkleinert(file,max,umkehren){
+    const url=URL.createObjectURL(file);
+    try{
+      const img=await new Promise((ok,f)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=f;i.src=url;});
+      const f=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+      const c=document.createElement("canvas");
+      c.width=Math.round(img.naturalWidth*f);c.height=Math.round(img.naturalHeight*f);
+      const ctx=c.getContext("2d");
+      ctx.drawImage(img,0,0,c.width,c.height);
+      if(umkehren){
+        const bild=ctx.getImageData(0,0,c.width,c.height), d=bild.data;
+        let lo=255,hi=0;
+        for(let i=0;i<d.length;i+=4){const g=(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114);d[i]=g;if(g<lo)lo=g;if(g>hi)hi=g;}
+        const spanne=Math.max(1,hi-lo);
+        for(let i=0;i<d.length;i+=4){const v=255-Math.round((d[i]-lo)*255/spanne);d[i]=d[i+1]=d[i+2]=v;}
+        ctx.putImageData(bild,0,0);
+      }
+      const blob=await new Promise(ok=>c.toBlob(ok,"image/jpeg",0.92));
+      return new File([blob],"qr.jpg",{type:"image/jpeg"});
+    }finally{URL.revokeObjectURL(url);}
+  }
   function fotoGewaehlt(e){
     const file=e.target.files[0];e.target.value="";
     if(!file)return;
     setError("");setPruefe(true);
-    bibliothek(()=>{
+    bibliothek(async()=>{
       const sc=new Html5Qrcode(divId);
-      sc.scanFile(file,false)
-        .then(text=>setResult(text.trim()))
-        .catch(()=>setError("Kein QR-Code erkannt – näher ran und scharf fotografieren."))
-        .finally(()=>{setPruefe(false);try{sc.clear();}catch{}});
+      try{
+        // erst normal, dann umgekehrt (heller Code auf dunklem Grund) – jeweils in mehreren Größen
+        for(const [groesse,umkehren] of [[1000,false],[1000,true],[1600,true],[1600,false],[700,true],[700,false],[2400,true]]){
+          try{
+            const text=await sc.scanFile(await verkleinert(file,groesse,umkehren),false);
+            setResult(text.trim());return;
+          }catch{}
+        }
+        setError("Kein QR-Code erkannt – QR-Code mittig und formatfüllend fotografieren, ohne Spiegelung.");
+      }finally{setPruefe(false);try{sc.clear();}catch{}}
     });
   }
 
@@ -1049,39 +1080,10 @@ function SlotFuellenModal({drucker,slot,mehrereSlots,filaments,onPick,onClose}){
 }
 
 // ── Scannen (großer Knopf in der Mitte) ──
-function ScanSheet({filaments,onGefunden,onNeu,onQR,onClose}){
-  const [scanning,setScanning]=useState(false);
-  const [fehler,setFehler]=useState("");
-  const [treffer,setTreffer]=useState(null);
-  async function handlePhoto(e){
-    const file=e.target.files[0];if(!file)return;
-    const apiKey=loadApiKey();
-    if(!apiKey){setFehler("Kein API-Key – bitte in ⚙️ eintragen.");return;}
-    setFehler("");setTreffer(null);setScanning(true);
-    const reader=new FileReader();
-    reader.onload=async()=>{
-      try{
-        const scan=await scanLabel(reader.result.split(",")[1],file.type,"find",apiKey);
-        const t=filaments.map(f=>({fil:f,score:matchScore(f,scan)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
-        setTreffer(t);
-      }catch(err){setFehler("Scan fehlgeschlagen: "+err.message);}
-      setScanning(false);
-    };
-    reader.readAsDataURL(file);
-  }
+function ScanSheet({onNeu,onQR,onClose}){
   const option={...bloss,display:"flex",alignItems:"center",gap:14,background:SURFACE2,borderRadius:16,padding:"14px 16px",textAlign:"left",width:"100%"};
   const titel=(t,u)=><div><div style={{fontSize:15,fontWeight:600}}>{t}</div><div style={{fontSize:12,color:TEXT_DIM,marginTop:2}}>{u}</div></div>;
   return <Modal title="Scannen" onClose={onClose}>
-    <label style={{...option,cursor:"pointer"}}>
-      <Icon name="camera" size={26}/>{titel(scanning?"Erkenne Etikett…":"Spule finden","Etikett fotografieren – öffnet die passende Spule")}
-      <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}}/>
-    </label>
-    {fehler&&<div style={{color:ROT,fontSize:12}}>{fehler}</div>}
-    {treffer&&treffer.length===0&&<div style={{fontSize:13,color:TEXT_DIM}}>Nichts Passendes gefunden. Neu anlegen?</div>}
-    {treffer&&treffer.map(({fil})=><button key={fil.id} onClick={()=>onGefunden(fil)} style={{...option,padding:"10px 14px"}}>
-      <Ring hex={fil.colorHex} pct={(()=>{const s=repSpule(fil)||spulenVon(fil)[0];return s?calcPct(s.weight,startG(fil,s)):0;})()} size={36} dicke={4}/>
-      {titel(`${fil.brand} ${fil.colorName}`,`${fil.material} · ${spulenVon(fil).length} Spulen`)}
-    </button>)}
     <button onClick={onNeu} style={option}><Icon name="plus" size={26}/>{titel("Neue Spule anlegen","Etikett scannen oder von Hand eintragen")}</button>
     <button onClick={onQR} style={option}><Icon name="qr" size={26}/>{titel("QR-Code Lagerplatz scannen","Zeigt, was an diesem Lagerplatz liegt")}</button>
   </Modal>;
@@ -2269,8 +2271,7 @@ function App(){
       wert={usedMats.includes(filter)?filter:"Alle"}
       onWahl={w=>{setFilter(w);setRadOffen(false);}}
       onClose={()=>setRadOffen(false)}/>}
-    {scanSheet&&<ScanSheet filaments={filaments} onClose={()=>setScanSheet(false)}
-      onGefunden={fil=>{setScanSheet(false);openDetail(fil);}}
+    {scanSheet&&<ScanSheet onClose={()=>setScanSheet(false)}
       onNeu={()=>{setScanSheet(false);setModal("add");}}
       onQR={()=>{setScanSheet(false);zeige("qr");}}/>}
     {platzSpule&&<PlatzModal fil={platzFil} spool={platzSpule} imDrucker={(platzFil.inUse||[]).some(u=>u.id===platzSpule.id)}
