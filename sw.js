@@ -1,4 +1,4 @@
-const CACHE = "filament-v7.6";
+const CACHE = "filament-v7.7";
 const ASSETS = ["./index.html", "./manifest.json"];
 
 self.addEventListener("install", e => {

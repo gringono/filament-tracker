@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.6";
+const VERSION="v7.7";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -447,6 +447,10 @@ function QRScannerScreen({filaments,onOpen}){
   const [status,setStatus]=useState("Wird gestartet...");
   const scannerRef=useRef(null);
   const divId="qr-reader-filament";
+  // Live-Kamera gibt es im Browser nur über https. Über http://<Server>:8080 wird stattdessen
+  // ein Foto aufgenommen und der QR-Code darin erkannt.
+  const live=!!(window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+  const [pruefe,setPruefe]=useState(false);
 
   useEffect(()=>{
     startScanner();
@@ -455,6 +459,7 @@ function QRScannerScreen({filaments,onOpen}){
 
   function startScanner(){
     setError("");setResult(null);setStatus("Kamera wird geöffnet...");
+    if(!live)return;
     if(scannerRef.current){
       scannerRef.current.stop().catch(()=>{}).finally(()=>{
         scannerRef.current.clear();
@@ -468,16 +473,30 @@ function QRScannerScreen({filaments,onOpen}){
     }
   }
 
+  // QR-Bibliothek (370 KB) erst laden, wenn der Scanner gebraucht wird – macht den App-Start schneller
+  function bibliothek(weiter){
+    if(window.Html5Qrcode){weiter();return;}
+    const sk=document.createElement("script");
+    sk.src="./vendor/html5-qrcode.min.js";
+    sk.onload=weiter;
+    sk.onerror=()=>{setPruefe(false);setError("QR-Scanner konnte nicht geladen werden.");};
+    document.head.appendChild(sk);
+  }
+  function fotoGewaehlt(e){
+    const file=e.target.files[0];e.target.value="";
+    if(!file)return;
+    setError("");setPruefe(true);
+    bibliothek(()=>{
+      const sc=new Html5Qrcode(divId);
+      sc.scanFile(file,false)
+        .then(text=>setResult(text.trim()))
+        .catch(()=>setError("Kein QR-Code erkannt – näher ran und scharf fotografieren."))
+        .finally(()=>{setPruefe(false);try{sc.clear();}catch{}});
+    });
+  }
+
   function initScanner(){
-    // QR-Bibliothek (370 KB) erst laden, wenn der Scanner gebraucht wird – macht den App-Start schneller
-    if(!window.Html5Qrcode){
-      const sk=document.createElement("script");
-      sk.src="./vendor/html5-qrcode.min.js";
-      sk.onload=initScanner;
-      sk.onerror=()=>setError("QR-Scanner konnte nicht geladen werden.");
-      document.head.appendChild(sk);
-      return;
-    }
+    if(!window.Html5Qrcode){bibliothek(initScanner);return;}
     try{
       const scanner=new Html5Qrcode(divId);
       scannerRef.current=scanner;
@@ -512,13 +531,23 @@ function QRScannerScreen({filaments,onOpen}){
 
   const zeilen=matched.flatMap(f=>f.stock.filter(s=>(s.location||"").toLowerCase()===result.toLowerCase()).map(s=>({f,s})));
   return <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
-    {!result&&<>
+    {!result&&live&&<>
       <div style={{fontSize:14,color:TEXT_DIM,textAlign:"center"}}>QR-Code am Regal in den Rahmen halten</div>
       <div id={divId} style={{borderRadius:24,overflow:"hidden",background:"#000",boxShadow:`0 0 0 1px ${BORDER}`}}/>
       {error
         ?<div style={{color:ROT,fontSize:13,textAlign:"center"}}>{error}</div>
         :<div style={{color:TEXT_MUTED,fontSize:12,textAlign:"center"}}>{status}</div>
       }
+    </>}
+    {!result&&!live&&<>
+      <label style={{background:SURFACE,borderRadius:24,padding:"36px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:12,cursor:"pointer",textAlign:"center"}}>
+        <span style={{color:TEXT}}><Icon name="qr" size={56} stroke={1.4}/></span>
+        <span style={{fontSize:17,fontWeight:700}}>{pruefe?"Erkenne QR-Code…":"QR-Code fotografieren"}</span>
+        <span style={{fontSize:13,color:TEXT_DIM}}>Kamera öffnet sich – QR-Code am Regal formatfüllend aufnehmen</span>
+        <input type="file" accept="image/*" capture="environment" onChange={fotoGewaehlt} style={{display:"none"}}/>
+      </label>
+      <div id={divId} style={{display:"none"}}/>
+      {error&&<div style={{color:ROT,fontSize:13,textAlign:"center"}}>{error}</div>}
     </>}
 
     {result&&<>
