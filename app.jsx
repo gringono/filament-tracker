@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.9";
+const VERSION="v7.10";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1638,7 +1638,7 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
     <div style={{display:"flex",gap:8}}>
       {zahl(`${(statistik.kg||0).toLocaleString("de-DE",{maximumFractionDigits:1})} kg`,"Filament gesamt")}
       {zahl(statistik.spulen,"Spulen")}
-      {zahl(statistik.filamente,"Sorten")}
+      {zahl(statistik.materialien,"Materialien")}
     </div>
     <Field label="DRUCKER (EINER PRO ZEILE)">
       <textarea style={{...inputStyle,height:110,resize:"none",lineHeight:1.6}} value={printerList} onChange={e=>setPrinterList(e.target.value)}/>
@@ -2237,7 +2237,7 @@ function App(){
     {rfidFil&&<RfidWriteModal fil={rfidFil} startSpoolId={rfidFor.spoolId} onClose={()=>setRfidFor(null)}/>}
     {modal==="add"&&<FilamentModal onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
     {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} einheiten={einheiten}
-      statistik={{kg:gesamtKg,spulen:totalSpools,filamente:total}}
+      statistik={{kg:gesamtKg,spulen:totalSpools,materialien:usedMats.length}}
       onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} onSaveEinheiten={setEinheiten} onSaveOrte={orteSpeichern}
       allFilaments={filaments} onImport={(fils,prts,einh)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);if(einh)setEinheiten(einh);setModal(null);}}/>}
     {modal&&typeof modal==="object"&&
