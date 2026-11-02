@@ -67,7 +67,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.2";
+const VERSION="v7.3";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1062,6 +1062,113 @@ function ScanSheet({filaments,onGefunden,onNeu,onQR,onClose}){
   </Modal>;
 }
 
+// ── Material-Auswahl als Pappspule ──
+// Drehen bis das Material oben (12 Uhr) steht; beim Loslassen rastet das Rad ein.
+// Antippen eines Materials dreht es nach oben, Antippen der Nabe übernimmt.
+function SpulenRad({eintraege,wert,onWahl,onClose}){
+  const n=eintraege.length, step=360/n;
+  const S=Math.min(340,(typeof window!=="undefined"?window.innerWidth:400)-32);
+  const nabe=Math.round(S*0.2), rand=12;
+  const startIdx=Math.max(0,eintraege.findIndex(e=>e.wert===wert));
+  const [rot,setRot]=useState(-startIdx*step-60);   // startet leicht verdreht und dreht sich beim Öffnen ein
+  const [zieht,setZieht]=useState(false);
+  const [offen,setOffen]=useState(false);
+  const radRef=useRef(null), drag=useRef(null), letzter=useRef(null);
+  useEffect(()=>{const t=setTimeout(()=>{setOffen(true);setRot(-startIdx*step);},30);return ()=>clearTimeout(t);},[]);
+
+  const index=((Math.round(-rot/step)%n)+n)%n;
+  const akt=eintraege[index];
+  useEffect(()=>{
+    if(letzter.current!==null&&letzter.current!==index){try{navigator.vibrate&&navigator.vibrate(4);}catch{}}
+    letzter.current=index;
+  },[index]);
+
+  function winkel(e){const r=radRef.current.getBoundingClientRect();return Math.atan2(e.clientY-(r.top+r.height/2),e.clientX-(r.left+r.width/2))*180/Math.PI;}
+  function abstand(e){const r=radRef.current.getBoundingClientRect();return Math.hypot(e.clientX-(r.left+r.width/2),e.clientY-(r.top+r.height/2));}
+  function naechste(ziel){
+    // auf das nächste Material einrasten, von der aktuellen Stellung aus auf kürzestem Weg
+    return Math.round(ziel/step)*step;
+  }
+  function down(e){
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current={w:winkel(e),rot,t:performance.now(),v:0,weg:0};
+    setZieht(true);
+  }
+  function move(e){
+    const d=drag.current;if(!d)return;
+    const w=winkel(e);let delta=w-d.w;
+    if(delta>180)delta-=360;if(delta<-180)delta+=360;
+    const jetzt=performance.now();
+    d.v=delta/Math.max(1,jetzt-d.t);d.t=jetzt;d.w=w;d.rot+=delta;d.weg+=Math.abs(delta);
+    setRot(d.rot);
+  }
+  function up(e){
+    const d=drag.current;drag.current=null;setZieht(false);
+    if(!d)return;
+    if(d.weg<3){
+      // Antippen: Nabe = übernehmen, sonst angetipptes Material nach oben drehen
+      if(abstand(e)<nabe){onWahl(akt.wert);return;}
+      const a=winkel(e)+90-d.rot;                       // Winkel im Rad, 0 = oben
+      const i=((Math.round(a/step)%n)+n)%n;
+      let diff=(-i*step-d.rot)%360;if(diff>180)diff-=360;if(diff<-180)diff+=360;
+      setRot(naechste(d.rot+diff));
+      return;
+    }
+    // Schwung: kurz nachlaufen lassen, dann einrasten
+    const nachlauf=Math.max(-200,Math.min(200,d.v*220));
+    setRot(naechste(d.rot+nachlauf));
+  }
+
+  const schrift=n<=8?16:n<=14?14:12;
+  const innen=nabe+14, aussen=S/2-rand-10;
+  return <div style={{position:"fixed",inset:0,zIndex:100,background:"rgba(0,0,0,0.78)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",
+    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:22,padding:16,color:TEXT,...mono}}>
+    <div style={{fontSize:13,color:TEXT_DIM,letterSpacing:"0.08em",fontWeight:600}}>MATERIAL WÄHLEN</div>
+    <div style={{position:"relative",width:S,height:S+14,transition:"transform .45s cubic-bezier(.2,.9,.25,1.2), opacity .3s",transform:offen?"scale(1)":"scale(.6)",opacity:offen?1:0}}>
+      {/* Zeiger auf 12 Uhr */}
+      <div style={{position:"absolute",left:"50%",top:0,transform:"translateX(-50%)",zIndex:3,width:0,height:0,
+        borderLeft:"11px solid transparent",borderRight:"11px solid transparent",borderTop:`18px solid ${TEXT}`,filter:"drop-shadow(0 2px 3px rgba(0,0,0,.6))"}}/>
+      <div ref={radRef} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+        style={{position:"absolute",left:0,top:14,width:S,height:S,borderRadius:"50%",touchAction:"none",cursor:zieht?"grabbing":"grab",userSelect:"none",WebkitUserSelect:"none"}}>
+        {/* drehende Pappscheibe */}
+        <div style={{position:"absolute",inset:0,borderRadius:"50%",transform:`rotate(${rot}deg)`,
+          transition:zieht?"none":"transform .55s cubic-bezier(.15,.85,.3,1.12)",
+          background:"repeating-radial-gradient(circle at 50% 50%, #c99f66 0 5px, #bf935a 5px 6.5px)",
+          border:`${rand}px solid #8a6438`,boxShadow:"0 24px 60px rgba(0,0,0,.65), inset 0 0 0 2px rgba(0,0,0,.18), inset 0 0 36px rgba(60,35,10,.35)"}}>
+          {eintraege.map((e,i)=>{
+            const gewaehlt=i===index;
+            return <React.Fragment key={e.wert}>
+              <div style={{position:"absolute",left:"50%",top:"50%",width:2,height:12,marginLeft:-1,background:"rgba(70,45,15,.45)",
+                transform:`rotate(${i*step}deg) translateY(${-(S/2-rand-4)}px)`,transformOrigin:"50% 0"}}/>
+              <div style={{position:"absolute",left:"50%",top:"50%",height:schrift+6,marginTop:-(schrift+6)/2,
+                transform:`rotate(${i*step-90}deg) translateX(${innen}px)`,transformOrigin:"0 50%",
+                width:aussen-innen,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",overflow:"hidden",
+                fontSize:schrift,fontWeight:gewaehlt?800:600,color:gewaehlt?"#1c1206":"rgba(60,38,14,.78)",letterSpacing:"0.02em"}}>
+                {e.label}<span style={{fontSize:schrift-3,fontWeight:500,opacity:.7}}>{e.anzahl}</span>
+              </div>
+            </React.Fragment>;
+          })}
+        </div>
+        {/* Glanz (dreht nicht mit) */}
+        <div style={{position:"absolute",inset:0,borderRadius:"50%",pointerEvents:"none",
+          background:"radial-gradient(circle at 32% 26%, rgba(255,255,255,.22), transparent 55%)"}}/>
+        {/* Nabe mit Auswahl */}
+        <div style={{position:"absolute",left:"50%",top:"50%",width:nabe*2,height:nabe*2,marginLeft:-nabe,marginTop:-nabe,borderRadius:"50%",
+          background:BG,border:"6px solid #8a6438",boxShadow:"inset 0 4px 14px rgba(0,0,0,.8)",
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:6,pointerEvents:"none"}}>
+          <div style={{fontSize:Math.min(22,nabe/3),fontWeight:800,lineHeight:1.1,wordBreak:"break-word"}}>{akt.label}</div>
+          <div style={{fontSize:11,color:TEXT_DIM,marginTop:4}}>{akt.anzahl} Spule{akt.anzahl!==1?"n":""}</div>
+        </div>
+      </div>
+    </div>
+    <div style={{fontSize:12,color:TEXT_MUTED}}>Drehen, bis dein Material oben steht</div>
+    <div style={{display:"flex",gap:10,width:"100%",maxWidth:S}}>
+      <button onClick={onClose} style={{...bloss,flex:1,background:SURFACE2,borderRadius:14,padding:"14px 0",fontWeight:600,fontSize:15,textAlign:"center"}}>Abbrechen</button>
+      <button onClick={()=>onWahl(akt.wert)} style={{...bloss,flex:2,background:TEXT,color:BG,borderRadius:14,padding:"14px 0",fontWeight:700,fontSize:15,textAlign:"center"}}>{akt.label} zeigen</button>
+    </div>
+  </div>;
+}
+
 // ── Drucker-Einheiten bearbeiten (Einstellungen) ──
 function EinheitenEditor({drucker,einheiten,setEinheiten}){
   const klein={...bloss,fontSize:12,color:TEXT_DIM,border:`1px dashed ${BORDER}`,borderRadius:8,padding:"6px 0",width:"100%",textAlign:"center"};
@@ -1822,6 +1929,7 @@ function App(){
   const [slotFuellen,setSlotFuellen]=useState(null); // {printer, slot, mehrere}
   const [rfidFor,setRfidFor]=useState(null);      // {filId, spoolId}
   const [scanSheet,setScanSheet]=useState(false);
+  const [radOffen,setRadOffen]=useState(false);
 
   function zeige(s){setScreen(s);window.scrollTo(0,0);}
   function openDetail(fil,spoolId){setDetail({filId:fil.id,spoolId:spoolId||null});zeige("detail");}
@@ -1978,20 +2086,12 @@ function App(){
         <div style={{display:"flex",gap:6,margin:"18px 0 14px",alignItems:"center"}}>
           <button onClick={()=>setFilter("Alle")} style={chip(filter==="Alle")}>Alle</button>
           {nachkaufen.length>0&&<button onClick={()=>setFilter("Nachkaufen")} style={{...chip(filter==="Nachkaufen"),...(filter!=="Nachkaufen"&&{color:ROT})}}>Nachkaufen {nachkaufen.length}</button>}
-          {(()=>{
-            const matAktiv=usedMats.includes(filter);
-            return <div style={{position:"relative",flex:1,minWidth:0,display:"flex",justifyContent:"flex-end"}}>
-              <div style={{...chip(matAktiv),display:"flex",alignItems:"center",gap:6,maxWidth:"100%",pointerEvents:"none"}}>
-                <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{matAktiv?filter:"Material"}</span>
-                <span style={{fontSize:10}}>▾</span>
-              </div>
-              <select aria-label="Material wählen" value={matAktiv?filter:""} onChange={e=>setFilter(e.target.value||"Alle")}
-                style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",fontSize:16}}>
-                <option value="">Alle Materialien</option>
-                {usedMats.map(m=><option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>;
-          })()}
+          <div style={{flex:1}}/>
+          <button onClick={()=>setRadOffen(true)} aria-label="Material wählen"
+            style={{...chip(usedMats.includes(filter)),display:"flex",alignItems:"center",gap:6,maxWidth:"45%"}}>
+            <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{usedMats.includes(filter)?filter:"Material"}</span>
+            <span style={{fontSize:10}}>▾</span>
+          </button>
         </div>
 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -2053,6 +2153,12 @@ function App(){
       onNew={handleForceNew}
       onClose={()=>setDupeCheck(null)}
     />}
+    {radOffen&&<SpulenRad
+      eintraege={[{wert:"Alle",label:"Alle",anzahl:totalSpools},
+        ...usedMats.map(m=>({wert:m,label:m,anzahl:filaments.filter(f=>f.material===m).reduce((a,f)=>a+spulenVon(f).length,0)}))]}
+      wert={usedMats.includes(filter)?filter:"Alle"}
+      onWahl={w=>{setFilter(w);setRadOffen(false);}}
+      onClose={()=>setRadOffen(false)}/>}
     {scanSheet&&<ScanSheet filaments={filaments} onClose={()=>setScanSheet(false)}
       onGefunden={fil=>{setScanSheet(false);openDetail(fil);}}
       onNeu={()=>{setScanSheet(false);setModal("add");}}
