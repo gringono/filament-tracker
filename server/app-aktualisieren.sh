@@ -22,7 +22,7 @@ mkdir -p "$PB/pb_public/vendor" "$PB/pb_migrations"
 # app.js = fertig übersetzter App-Code; vendor/ = React und QR-Scanner lokal (schneller Start, kein Internet nötig)
 for f in index.html app.js sw.js manifest.json icon-192.png icon-512.png \
          vendor/react.production.min.js vendor/react-dom.production.min.js vendor/html5-qrcode.min.js \
-         vendor/kaushan-script.woff2; do
+         vendor/kaushan-script.woff2 vendor/jsqr.min.js; do
   # erst in eine Zwischendatei, damit bei einem Fehler die alte Version erhalten bleibt
   curl -fsSL "$GITHUB_URL/$f" -o "$PB/pb_public/$f.neu"
   mv "$PB/pb_public/$f.neu" "$PB/pb_public/$f"

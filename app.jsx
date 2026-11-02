@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.14";
+const VERSION="v7.15";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -482,48 +482,49 @@ function QRScannerScreen({filaments,onOpen}){
     sk.onerror=()=>{setPruefe(false);setError("QR-Scanner konnte nicht geladen werden.");};
     document.head.appendChild(sk);
   }
-  // Handyfotos (12 MP) sind für die Erkennung zu groß und zu langsam → verkleinern und
-  // nacheinander mehrere Größen probieren, bis der Code gefunden ist.
-  // umkehren: für gelaserte Codes (hell auf dunkel, z.B. silber auf schwarzem Alu) – die Erkennung
-  // kennt nur dunkel auf hell. Dabei auch in Graustufen wandeln und den Kontrast strecken.
-  async function verkleinert(file,max,umkehren){
+  // Foto → QR-Code. Gelaserte Codes auf Alu (Spiegelungen, schmaler heller Rand ans schwarze Metall)
+  // erkennt die Standard-Erkennung oft nicht. Deshalb jsQR, mehrere Bildgrößen und viele
+  // Hell/Dunkel-Schwellen (reines Schwarz/Weiß), bis der Code gefunden ist.
+  function jsqrLaden(){
+    if(window.jsQR)return Promise.resolve();
+    return new Promise((ok,f)=>{const sk=document.createElement("script");sk.src="./vendor/jsqr.min.js";sk.onload=ok;sk.onerror=f;document.head.appendChild(sk);});
+  }
+  async function qrAusFoto(file){
     const url=URL.createObjectURL(file);
     try{
       const img=await new Promise((ok,f)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=f;i.src=url;});
-      const f=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
-      const c=document.createElement("canvas");
-      c.width=Math.round(img.naturalWidth*f);c.height=Math.round(img.naturalHeight*f);
-      const ctx=c.getContext("2d");
-      ctx.drawImage(img,0,0,c.width,c.height);
-      if(umkehren){
-        const bild=ctx.getImageData(0,0,c.width,c.height), d=bild.data;
-        let lo=255,hi=0;
-        for(let i=0;i<d.length;i+=4){const g=(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114);d[i]=g;if(g<lo)lo=g;if(g>hi)hi=g;}
-        const spanne=Math.max(1,hi-lo);
-        for(let i=0;i<d.length;i+=4){const v=255-Math.round((d[i]-lo)*255/spanne);d[i]=d[i+1]=d[i+2]=v;}
-        ctx.putImageData(bild,0,0);
+      for(const max of [1000,800,600,1200]){
+        const f=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+        const w=Math.round(img.naturalWidth*f), h=Math.round(img.naturalHeight*f);
+        const c=document.createElement("canvas");c.width=w;c.height=h;
+        const ctx=c.getContext("2d",{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
+        const bild=ctx.getImageData(0,0,w,h), roh=new Uint8ClampedArray(bild.data), d=bild.data;
+        let j=jsQR(roh,w,h,{inversionAttempts:"attemptBoth"});
+        if(j&&j.data)return j.data;
+        const grau=new Uint8ClampedArray(w*h);
+        for(let i=0;i<grau.length;i++)grau[i]=roh[i*4]*0.299+roh[i*4+1]*0.587+roh[i*4+2]*0.114;
+        for(let t=60;t<=210;t+=6){
+          for(let i=0;i<grau.length;i++){const v=grau[i]>t?255:0;d[i*4]=d[i*4+1]=d[i*4+2]=v;}
+          j=jsQR(d,w,h,{inversionAttempts:"dontInvert"});
+          if(j&&j.data)return j.data;
+        }
+        await new Promise(r=>setTimeout(r,0));   // Anzeige zwischendurch aktualisieren
       }
-      const blob=await new Promise(ok=>c.toBlob(ok,"image/jpeg",0.92));
-      return new File([blob],"qr.jpg",{type:"image/jpeg"});
+      return null;
     }finally{URL.revokeObjectURL(url);}
   }
-  function fotoGewaehlt(e){
+  async function fotoGewaehlt(e){
     const file=e.target.files[0];e.target.value="";
     if(!file)return;
     setError("");setPruefe(true);
-    bibliothek(async()=>{
-      const sc=new Html5Qrcode(divId);
-      try{
-        // erst normal, dann umgekehrt (heller Code auf dunklem Grund) – jeweils in mehreren Größen
-        for(const [groesse,umkehren] of [[1000,false],[1000,true],[1600,true],[1600,false],[700,true],[700,false],[2400,true]]){
-          try{
-            const text=await sc.scanFile(await verkleinert(file,groesse,umkehren),false);
-            setResult(text.trim());return;
-          }catch{}
-        }
-        setError("Kein QR-Code erkannt – QR-Code mittig und formatfüllend fotografieren, ohne Spiegelung.");
-      }finally{setPruefe(false);try{sc.clear();}catch{}}
-    });
+    await new Promise(r=>setTimeout(r,50));
+    try{
+      await jsqrLaden();
+      const text=await qrAusFoto(file);
+      if(text)setResult(text.trim());
+      else setError("Kein QR-Code erkannt – leicht schräg fotografieren, damit nichts spiegelt. Oder unten den Lagerplatz auswählen.");
+    }catch{setError("QR-Erkennung konnte nicht geladen werden.");}
+    finally{setPruefe(false);}
   }
 
   function initScanner(){
@@ -560,6 +561,7 @@ function QRScannerScreen({filaments,onOpen}){
     f.stock?.some(s=>(s.location||"").toLowerCase()===result.toLowerCase())
   ):[];
 
+  const orte=[...new Set(filaments.flatMap(f=>(f.stock||[]).map(s=>s.location)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"de"));
   const zeilen=matched.flatMap(f=>f.stock.filter(s=>(s.location||"").toLowerCase()===result.toLowerCase()).map(s=>({f,s})));
   return <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
     {!result&&live&&<>
@@ -577,9 +579,14 @@ function QRScannerScreen({filaments,onOpen}){
         <span style={{fontSize:13,color:TEXT_DIM}}>Kamera öffnet sich – QR-Code am Lagerplatz formatfüllend aufnehmen</span>
         <input type="file" accept="image/*" capture="environment" onChange={fotoGewaehlt} style={{display:"none"}}/>
       </label>
-      <div id={divId} style={{display:"none"}}/>
       {error&&<div style={{color:ROT,fontSize:13,textAlign:"center"}}>{error}</div>}
     </>}
+    {!result&&orte.length>0&&<div style={{marginTop:6}}>
+      <div style={{...etikett,marginBottom:8}}>ODER LAGERPLATZ AUSWÄHLEN</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+        {orte.map(o=><button key={o} onClick={()=>{stopScanner();setResult(o);}} style={{...bloss,background:SURFACE2,borderRadius:99,padding:"9px 14px",fontSize:13,fontWeight:600}}>{o}</button>)}
+      </div>
+    </div>}
 
     {result&&<>
       <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:SURFACE,borderRadius:18}}>
