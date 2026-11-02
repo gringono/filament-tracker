@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.10";
+const VERSION="v7.11";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -805,32 +805,47 @@ function SlotZelle({slot,size,zeigeName,kompakt,onClick}){
   </button>;
 }
 function DruckerKarte({name,plan,onSlot,onOhneSlot}){
-  const [offen,setOffen]=useState(false);
-  // ab 3 AMS (über 12 Slots) zugeklappt als kleine Punkte, sonst passt es nicht aufs Handy
-  const klappbar=plan.anzahl>12, kompakt=klappbar&&!offen;
+  // Eingeklappt: nur Farbpunkte. Zustand je Drucker merken (nur auf diesem Gerät).
+  // Ohne gespeicherten Zustand: ab 13 Slots (3 AMS) eingeklappt, sonst offen.
+  const merkKey="drucker_zu:"+name;
+  const [zu,setZu]=useState(()=>{try{const v=localStorage.getItem(merkKey);return v===null?plan.anzahl>12:v==="1";}catch{return plan.anzahl>12;}});
+  const umschalten=()=>setZu(z=>{const n=!z;try{localStorage.setItem(merkKey,n?"1":"0");}catch{}return n;});
   const belegtN=plan.slots.filter(s=>s.belegt).length;
   const mehrereGruppen=plan.gruppen.length>1;
-  return <div style={{background:SURFACE,borderRadius:18,padding:"12px 12px 8px",marginBottom:8}}>
-    <button onClick={()=>klappbar&&setOffen(o=>!o)} style={{...bloss,width:"100%",display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10,cursor:klappbar?"pointer":"default"}}>
+  return <div style={{background:SURFACE,borderRadius:18,padding:zu?"12px":"12px 12px 8px",marginBottom:8}}>
+    <button onClick={umschalten} aria-expanded={!zu} style={{...bloss,width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:zu?10:12}}>
       <span style={{fontSize:14,fontWeight:600,color:TEXT}}>{name}</span>
-      <span style={{fontSize:11,color:TEXT_MUTED}}>{belegtN} von {plan.anzahl} belegt{klappbar?(offen?"  ▴":"  ▾"):""}</span>
+      <span style={{fontSize:11,color:TEXT_MUTED,display:"flex",alignItems:"center",gap:6}}>
+        {belegtN} von {plan.anzahl} belegt
+        <span style={{display:"inline-block",transform:zu?"rotate(0deg)":"rotate(180deg)",transition:"transform .25s",fontSize:12,color:TEXT_DIM}}>▾</span>
+      </span>
     </button>
-    {plan.gruppen.map((g,gi)=>{
-      const gross=g.slots.length<=4;
-      return <div key={gi} style={{display:"flex",alignItems:"center",gap:8,marginBottom:kompakt?6:8}}>
-        {mehrereGruppen&&<span style={{width:28,fontSize:11,color:TEXT_MUTED,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis"}}>{g.name}</span>}
-        <div style={{flex:1,display:"grid",gridTemplateColumns:`repeat(${kompakt?8:Math.max(g.slots.length,4)},minmax(0,1fr))`,gap:4,justifyItems:kompakt?"start":"center"}}>
-          {g.slots.map(s=><SlotZelle key={s.name} slot={s} size={kompakt?18:gross?46:32} kompakt={kompakt}
-            zeigeName={g.slots.length>1||mehrereGruppen} onClick={()=>onSlot(name,s)}/>)}
-        </div>
-      </div>;
-    })}
-    {plan.extra.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,marginTop:2,marginBottom:4}}>
-      <div style={{fontSize:11,color:"#facc15",marginBottom:6}}>Ohne Slot – antippen und Slot wählen</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:4,justifyItems:"center"}}>
-        {plan.extra.map(x=><SlotZelle key={x.spool.id} slot={{name:"?",belegt:x}} size={46} zeigeName onClick={()=>onOhneSlot(name,x)}/>)}
-      </div>
-    </div>}
+    {zu
+      ?<button onClick={umschalten} aria-label={`${name} aufklappen`} style={{...bloss,width:"100%",display:"flex",flexWrap:"wrap",alignItems:"center",gap:"8px 14px"}}>
+        {plan.gruppen.map((g,gi)=><span key={gi} style={{display:"flex",gap:5}}>
+          {g.slots.map(sl=>{const b=sl.belegt;
+            return <Ring key={sl.name} hex={b?.fil.colorHex} pct={b?calcPct(b.spool.weight,startG(b.fil,b.spool)):0} size={22} dicke={3.5} leer={!b}/>;})}
+        </span>)}
+        {plan.extra.length>0&&<span style={{fontSize:11,color:"#facc15"}}>+{plan.extra.length} ohne Slot</span>}
+      </button>
+      :<>
+        {plan.gruppen.map((g,gi)=>{
+          const gross=g.slots.length<=4;
+          return <div key={gi} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            {mehrereGruppen&&<span style={{width:28,fontSize:11,color:TEXT_MUTED,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis"}}>{g.name}</span>}
+            <div style={{flex:1,display:"grid",gridTemplateColumns:`repeat(${Math.max(g.slots.length,4)},minmax(0,1fr))`,gap:4,justifyItems:"center"}}>
+              {g.slots.map(sl=><SlotZelle key={sl.name} slot={sl} size={gross?46:32}
+                zeigeName={g.slots.length>1||mehrereGruppen} onClick={()=>onSlot(name,sl)}/>)}
+            </div>
+          </div>;
+        })}
+        {plan.extra.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,marginTop:2,marginBottom:4}}>
+          <div style={{fontSize:11,color:"#facc15",marginBottom:6}}>Ohne Slot – antippen und Slot wählen</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:4,justifyItems:"center"}}>
+            {plan.extra.map(x=><SlotZelle key={x.spool.id} slot={{name:"?",belegt:x}} size={46} zeigeName onClick={()=>onOhneSlot(name,x)}/>)}
+          </div>
+        </div>}
+      </>}
   </div>;
 }
 function DruckerKachel({name,plan,onSlot}){
@@ -1090,6 +1105,32 @@ function haptik(){
   }catch{}
 }
 
+// Ratschen-Klick (wie ein Schnurrad): kurzes, gefiltertes Rauschen über Web Audio.
+// Funktioniert auch während des Drehens. iPhone im Lautlos-Modus → stumm.
+let tonCtx=null, tonRauschen=null, tonZuletzt=0;
+function tonBereit(){
+  try{
+    if(!tonCtx){
+      const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+      tonCtx=new AC();
+      tonRauschen=tonCtx.createBuffer(1,Math.floor(tonCtx.sampleRate*0.02),tonCtx.sampleRate);
+      const d=tonRauschen.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    }
+    if(tonCtx.state==="suspended")tonCtx.resume();
+  }catch{}
+}
+function ratsche(){
+  try{
+    if(!tonCtx||tonCtx.state!=="running")return;
+    const jetzt=performance.now();if(jetzt-tonZuletzt<28)return;tonZuletzt=jetzt;
+    const t=tonCtx.currentTime;
+    const q=tonCtx.createBufferSource();q.buffer=tonRauschen;
+    const f=tonCtx.createBiquadFilter();f.type="bandpass";f.frequency.value=2600;f.Q.value=1.2;
+    const g=tonCtx.createGain();g.gain.setValueAtTime(0.55,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.018);
+    q.connect(f);f.connect(g);g.connect(tonCtx.destination);q.start(t);q.stop(t+0.02);
+  }catch{}
+}
+
 // ── Material-Auswahl als Pappspule ──
 // Drehen bis das Material oben (12 Uhr) steht; beim Loslassen rastet das Rad ein.
 // Antippen eines Materials dreht es nach oben, Antippen der Nabe übernimmt.
@@ -1116,6 +1157,7 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
   }
   function down(e){
     e.currentTarget.setPointerCapture(e.pointerId);
+    tonBereit();   // Ton darf erst nach einer Berührung starten (Browser-Regel)
     drag.current={w:winkel(e),rot,t:performance.now(),v:0,weg:0,idx:idxVon(rot)};
     setZieht(true);
   }
@@ -1126,7 +1168,7 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
     const jetzt=performance.now();
     d.v=delta/Math.max(1,jetzt-d.t);d.t=jetzt;d.w=w;d.rot+=delta;d.weg+=Math.abs(delta);
     // bei jedem Material, das über 12 Uhr läuft, einmal klicken (direkt im Touch-Ereignis, sonst blockt iOS)
-    const i=idxVon(d.rot);if(i!==d.idx){d.idx=i;haptik();}
+    const i=idxVon(d.rot);if(i!==d.idx){d.idx=i;ratsche();haptik();}
     setRot(d.rot);
   }
   function up(e){
@@ -1144,6 +1186,9 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
     // Schwung: kurz nachlaufen lassen, dann einrasten
     const nachlauf=Math.max(-200,Math.min(200,d.v*220));
     const ziel=naechste(d.rot+nachlauf);
+    // Nachlauf hörbar machen: Klicks im Takt der auslaufenden Drehung (ease-out ≈ 550 ms)
+    const schritte=Math.abs(Math.round((ziel-d.rot)/step));
+    for(let k=1;k<=schritte;k++)setTimeout(ratsche,550*(1-Math.cbrt(1-k/(schritte+0.5))));
     // iPhone erlaubt das Tick nur beim Loslassen (nicht während der Bewegung) → beim Einrasten immer klicken
     haptik();
     setRot(ziel);
