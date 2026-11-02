@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.5";
+const VERSION="v7.6";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -718,7 +718,9 @@ function slotNamen(einheit){
   const pre=name.length<=3?name:"";
   return Array.from({length:n},(_,i)=>`${pre}${i+1}`);
 }
-// Welche Spule liegt in welchem Slot? Spulen ohne (gültigen) Slot rücken in den ersten freien.
+// Welche Spule liegt in welchem Slot? Bei Druckern mit einem Platz rückt eine Spule ohne Slot automatisch
+// dorthin. Bei mehreren Slots nicht – sonst rutscht z.B. eine nicht zugeordnete Spule unbemerkt in einen
+// gerade frei gewordenen Slot. Solche Spulen stehen in "extra" (Anzeige "Ohne Slot").
 function belegung(filaments,drucker,einheiten){
   const proDrucker={};
   for(const fil of filaments)for(const s of fil.inUse||[])(proDrucker[s.printer]=proDrucker[s.printer]||[]).push({fil,spool:s});
@@ -730,7 +732,7 @@ function belegung(filaments,drucker,einheiten){
       const sl=flach.find(s=>s.name===x.spool.slot);
       if(sl&&!sl.belegt)sl.belegt=x;else ohne.push(x);
     }
-    for(const x of ohne){const frei=flach.find(s=>!s.belegt);if(frei)frei.belegt=x;else extra.push(x);}
+    for(const x of ohne){const frei=flach.length===1&&!flach[0].belegt?flach[0]:null;if(frei)frei.belegt=x;else extra.push(x);}
     out[p]={gruppen,slots:flach,extra,anzahl:flach.length};
   }
   return out;
@@ -766,13 +768,14 @@ function SlotZelle({slot,size,zeigeName,kompakt,onClick}){
   return <button onClick={onClick} title={b?`${slot.name}: ${b.fil.brand} ${b.fil.colorName}`:`${slot.name}: leer`}
     style={{...bloss,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
     <Ring hex={b?.fil.colorHex} pct={pct} size={size} dicke={kompakt?3:size>40?5:4} leer={!b}>
-      {zeigeName&&!kompakt&&<span style={{fontSize:10,color:TEXT_DIM,fontWeight:600}}>{slot.name}</span>}
+      {zeigeName&&!kompakt&&slot.name.length<=3&&<span style={{fontSize:10,color:TEXT_DIM,fontWeight:600}}>{slot.name}</span>}
     </Ring>
     {!kompakt&&<span style={{fontSize:11,color:rot?ROT:b?TEXT_DIM:TEXT_MUTED,whiteSpace:"nowrap",fontWeight:rot?700:400}}>
       {b?(size>40?`${b.spool.weight} g`:b.spool.weight):"leer"}</span>}
+    {!kompakt&&<span style={{fontSize:10,color:TEXT_MUTED,maxWidth:"100%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{b?b.fil.material:" "}</span>}
   </button>;
 }
-function DruckerKarte({name,plan,onSlot}){
+function DruckerKarte({name,plan,onSlot,onOhneSlot}){
   const [offen,setOffen]=useState(false);
   // ab 3 AMS (über 12 Slots) zugeklappt als kleine Punkte, sonst passt es nicht aufs Handy
   const klappbar=plan.anzahl>12, kompakt=klappbar&&!offen;
@@ -793,7 +796,12 @@ function DruckerKarte({name,plan,onSlot}){
         </div>
       </div>;
     })}
-    {plan.extra.length>0&&<div style={{fontSize:11,color:"#facc15",marginBottom:4}}>+{plan.extra.length} Spule{plan.extra.length>1?"n":""} ohne freien Slot – Slots in ⚙️ prüfen</div>}
+    {plan.extra.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,marginTop:2,marginBottom:4}}>
+      <div style={{fontSize:11,color:"#facc15",marginBottom:6}}>Ohne Slot – antippen und Slot wählen</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:4,justifyItems:"center"}}>
+        {plan.extra.map(x=><SlotZelle key={x.spool.id} slot={{name:"?",belegt:x}} size={46} zeigeName onClick={()=>onOhneSlot(name,x)}/>)}
+      </div>
+    </div>}
   </div>;
 }
 function DruckerKachel({name,plan,onSlot}){
@@ -804,7 +812,7 @@ function DruckerKachel({name,plan,onSlot}){
     <div style={{minWidth:0}}>
       <div style={{fontSize:11,color:TEXT_DIM,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{name}</div>
       <div style={{fontSize:14,fontWeight:600,color:b?(pct<KNAPP?ROT:TEXT):TEXT_MUTED}}>{b?`${b.spool.weight} g`:"leer"}</div>
-      {b&&<div style={{fontSize:11,color:TEXT_MUTED,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{b.fil.colorName||b.fil.material}</div>}
+      {b&&<div style={{fontSize:11,color:TEXT_MUTED,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{[b.fil.colorName,b.fil.material].filter(Boolean).join(" · ")}</div>}
       {plan.extra.length>0&&<div style={{fontSize:10,color:"#facc15"}}>+{plan.extra.length} weitere</div>}
     </div>
   </button>;
@@ -902,8 +910,8 @@ function SpulenDetail({fil,spoolId,ortVon,onSpool,onBack,onEdit,onDelete,onAddSp
 }
 
 // ── Spule in Drucker / ins Lager ──
-function PlatzModal({fil,spool,imDrucker,drucker,belegt,onMove,onClose}){
-  const [ziel,setZiel]=useState(null);
+function PlatzModal({fil,spool,imDrucker,drucker,belegt,startDrucker,onMove,onClose}){
+  const [ziel,setZiel]=useState(startDrucker||null);
   const [ort,setOrt]=useState(loadCustomLocs()[0]||"Lager");
   const [gewicht,setGewicht]=useState(String(spool.weight));
   function waehleSlot(p,slot){
@@ -1975,7 +1983,7 @@ function App(){
     const plan=belegt[s.printer];
     if(!plan||plan.anzahl===1)return s.printer;
     const sl=plan.slots.find(x=>x.belegt&&x.belegt.spool.id===s.id);
-    return sl?`${s.printer} · ${sl.name}`:s.printer;
+    return sl?`${s.printer} · ${sl.name}`:`${s.printer} · ohne Slot`;
   }
 
   const q=(suche||"").trim().toLowerCase();
@@ -2102,7 +2110,8 @@ function App(){
 
         {suche===null&&filter==="Alle"&&alleDrucker.length>0&&<div style={{marginTop:18}}>
           <div style={{...etikett,marginBottom:8}}>DRUCKER</div>
-          {mehrfach.map(p=><DruckerKarte key={p} name={p} plan={belegt[p]} onSlot={slotGeklickt}/>)}
+          {mehrfach.map(p=><DruckerKarte key={p} name={p} plan={belegt[p]} onSlot={slotGeklickt}
+            onOhneSlot={(drucker,x)=>setPlatz({filId:x.fil.id,spoolId:x.spool.id,drucker})}/>)}
           {einzel.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {einzel.map(p=><DruckerKachel key={p} name={p} plan={belegt[p]} onSlot={slotGeklickt}/>)}
           </div>}
@@ -2190,7 +2199,7 @@ function App(){
       onNeu={()=>{setScanSheet(false);setModal("add");}}
       onQR={()=>{setScanSheet(false);zeige("qr");}}/>}
     {platzSpule&&<PlatzModal fil={platzFil} spool={platzSpule} imDrucker={(platzFil.inUse||[]).some(u=>u.id===platzSpule.id)}
-      drucker={alleDrucker} belegt={belegt} onClose={()=>setPlatz(null)}
+      drucker={alleDrucker} belegt={belegt} startDrucker={platz.drucker} onClose={()=>setPlatz(null)}
       onMove={ziel=>{verschieben(platzFil.id,platzSpule.id,ziel);setPlatz(null);}}/>}
     {slotFuellen&&<SlotFuellenModal drucker={slotFuellen.printer} slot={slotFuellen.slot} mehrereSlots={slotFuellen.mehrere} filaments={filaments}
       onClose={()=>setSlotFuellen(null)}
