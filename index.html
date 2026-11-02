@@ -6,26 +6,27 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Filament-Tracker"/>
-  <meta name="theme-color" content="#86efac"/>
+  <meta name="theme-color" content="#0d0d10"/>
   <link rel="manifest" href="./manifest.json"/>
   <link rel="apple-touch-icon" href="./icon-192.png"/>
   <title>Filament-Tracker</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-    html,body{margin:0;padding:0;background:#080c0a;color:#d4f0dc;font-family:'IBM Plex Mono',monospace;overscroll-behavior:none;overflow-x:hidden;width:100%;max-width:100%;}
+    html,body{margin:0;padding:0;background:#08080a;color:#f4f4f5;font-family:'Inter',system-ui,-apple-system,sans-serif;overscroll-behavior:none;overflow-x:hidden;width:100%;max-width:100%;-webkit-font-smoothing:antialiased;}
     /* clip statt hidden: schneidet seitlich ab, macht body aber nicht zu einem eigenen
        Scrollbereich – sonst scrollt am PC das Mausrad nicht (overscroll-behavior:none) */
     body{overflow-x:clip;}
     #root{width:100%;min-height:100vh;}
     img,svg,video,canvas{max-width:100%;}
     input,select,textarea{max-width:100%;}
-    input,select,button,textarea{font-family:'IBM Plex Mono',monospace;}
+    input,select,button,textarea{font-family:inherit;}
     input[type=number]::-webkit-inner-spin-button{opacity:1;}
-    ::-webkit-scrollbar{width:4px;}
-    ::-webkit-scrollbar-track{background:#0e1410;}
-    ::-webkit-scrollbar-thumb{background:#1a2e1e;border-radius:2px;}
-    select option{background:#0e1410;color:#d4f0dc;}
+    ::-webkit-scrollbar{width:4px;height:0;}
+    ::-webkit-scrollbar-track{background:#0d0d10;}
+    ::-webkit-scrollbar-thumb{background:#2a2a31;border-radius:2px;}
+    select option{background:#17171b;color:#f4f4f5;}
+    input:focus,select:focus,textarea:focus{border-color:#52525b !important;}
   </style>
 </head>
 <body>
@@ -66,7 +67,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v6.4";
+const VERSION="v7.1";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -76,9 +77,12 @@ const DEFAULT_PRINTERS=["Bambu H2C","VCore 4.1","HevOrt"];
 const MATERIALS=["PLA","PETG","ABS","ASA","ABS-GF","XPETG","TPU","PA","PC","PVA","HIPS","CF","Sonstiges"];
 const DIAMETERS=[1.75,2.85];
 
-const MINT="#86efac",BG="#080c0a",SURFACE="#0e1410",SURFACE2="#141c16";
-const BORDER="#1a2e1e",TEXT="#d4f0dc",TEXT_DIM="#8ecf9a",TEXT_MUTED="#4a7a56";
-const mono={fontFamily:"'IBM Plex Mono',monospace"};
+const EINHEITEN_KEY="filament_printer_units";
+// Design v7 "Spulenwand": dunkle, neutrale Flächen – Farbe kommt von den Spulen
+const MINT="#86efac",BG="#0d0d10",SURFACE="#17171b",SURFACE2="#1f1f25";
+const BORDER="#2a2a31",TEXT="#f4f4f5",TEXT_DIM="#a1a1aa",TEXT_MUTED="#71717a",ROT="#fb7185";
+// Name stammt aus dem alten Design (Monospace) – steht jetzt für die Grundschrift
+const mono={fontFamily:"'Inter',system-ui,-apple-system,sans-serif"};
 
 // ── Storage ──
 function loadFilaments(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||[];}catch{return[];}}
@@ -89,6 +93,9 @@ function loadPrinters(){try{return JSON.parse(localStorage.getItem(PRINTERS_KEY)
 function savePrinters(p){localStorage.setItem(PRINTERS_KEY,JSON.stringify(p));}
 function loadScaleHost(){return localStorage.getItem(SCALE_HOST_KEY)||DEFAULT_SCALE_HOST;}
 function saveScaleHost(h){localStorage.setItem(SCALE_HOST_KEY,h||DEFAULT_SCALE_HOST);}
+// Einheiten je Drucker (AMS, INDX, externe Spule …): {"Bambu H2C":[{name:"A",slots:4},…]}
+function loadEinheiten(){try{return JSON.parse(localStorage.getItem(EINHEITEN_KEY))||{};}catch{return{};}}
+function saveEinheiten(e){localStorage.setItem(EINHEITEN_KEY,JSON.stringify(e));}
 
 // ── Server-Speicher (PocketBase im Heimnetz) ──
 // Läuft die App auf dem PocketBase-Server (Ordner pb_public), speichert sie dort,
@@ -173,8 +180,8 @@ function kopieren(text){
 function genId(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36);}
 
 // ── Backup ──
-function exportBackup(filaments,printers){
-  const data={version:"3.6",exported:new Date().toISOString(),filaments,printers};
+function exportBackup(filaments,printers,einheiten){
+  const data={version:"7.0",exported:new Date().toISOString(),filaments,printers,einheiten};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
@@ -335,9 +342,9 @@ const SCALE_ERRORS={
 };
 
 // ── UI Primitives ──
-const inputStyle={...mono,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,
-  color:TEXT,padding:"8px 10px",fontSize:13,width:"100%",boxSizing:"border-box",outline:"none",WebkitAppearance:"none"};
-const labelCss={...mono,color:TEXT_DIM,fontSize:10,marginBottom:3,display:"block",letterSpacing:"0.08em"};
+const inputStyle={...mono,background:BG,border:`1px solid ${BORDER}`,borderRadius:10,
+  color:TEXT,padding:"10px 12px",fontSize:14,width:"100%",boxSizing:"border-box",outline:"none",WebkitAppearance:"none"};
+const labelCss={...mono,color:TEXT_MUTED,fontSize:11,fontWeight:600,marginBottom:5,display:"block",letterSpacing:"0.06em"};
 
 function colorBg(hex){
   if(Array.isArray(hex)&&hex.length>1){
@@ -350,19 +357,19 @@ function colorBg(hex){
 function ColorChip({hex,size=28}){
   const bg=colorBg(hex);
   const isGrad=Array.isArray(hex)&&hex.length>1;
-  return <div style={{width:size,height:size,borderRadius:4,background:bg,border:`1px solid rgba(134,239,172,0.15)`,flexShrink:0,position:"relative"}}>
+  return <div style={{width:size,height:size,borderRadius:"50%",background:bg,border:`1px solid rgba(255,255,255,0.12)`,flexShrink:0,position:"relative"}}>
     {isGrad&&<div style={{position:"absolute",top:1,right:2,fontSize:size>20?7:6,lineHeight:1,color:"rgba(255,255,255,0.6)"}}>◈</div>}
   </div>;
 }
 function RemainingBar({weight,fullWeight}){
   const pct=calcPct(weight,fullWeight);
   const color=gramColor(weight,fullWeight);
-  return <div style={{width:"100%",height:4,background:"#0e1c12",borderRadius:3,overflow:"hidden"}}>
+  return <div style={{width:"100%",height:4,background:"#26262c",borderRadius:3,overflow:"hidden"}}>
     <div style={{width:`${pct}%`,height:"100%",background:color,transition:"width 0.3s,background 0.3s"}}/>
   </div>;
 }
 function Badge({color,bg,children}){
-  return <span style={{...mono,background:bg||SURFACE2,color:color||TEXT_DIM,fontSize:10,padding:"2px 7px",borderRadius:4,whiteSpace:"nowrap"}}>{children}</span>;
+  return <span style={{...mono,background:bg||SURFACE2,color:color||TEXT_DIM,fontSize:11,padding:"3px 8px",borderRadius:99,whiteSpace:"nowrap"}}>{children}</span>;
 }
 function Field({label,children}){
   return <div style={{display:"flex",flexDirection:"column"}}><span style={labelCss}>{label}</span>{children}</div>;
@@ -371,22 +378,22 @@ function PhotoButton({label,onChange,loading}){
   const ref=useRef();
   return <>
     <button onClick={()=>ref.current.click()} style={{
-      width:"100%",padding:"12px 0",background:"#051828",
-      border:`1.5px solid ${loading?"#facc15":"#00cfff"}`,borderRadius:8,
-      color:loading?"#facc15":"#00cfff",cursor:"pointer",fontSize:13,...mono,
-      boxShadow:loading?"none":"0 0 12px rgba(0,207,255,0.35),inset 0 0 20px rgba(0,207,255,0.07)"
+      width:"100%",padding:"14px 0",background:loading?SURFACE2:TEXT,
+      border:loading?"1px solid #facc15":"none",borderRadius:14,
+      color:loading?"#facc15":BG,cursor:"pointer",fontSize:15,fontWeight:700,...mono
     }}>{loading?"⏳ Scanne...":label}</button>
     <input ref={ref} type="file" accept="image/*" capture="environment" onChange={onChange} style={{display:"none"}}/>
   </>;
 }
 function Modal({title,children,onClose}){
-  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:"16px 16px 0 0",
-      width:"100%",maxWidth:520,maxHeight:"94vh",overflowY:"auto",
-      padding:"20px 16px calc(24px + env(safe-area-inset-bottom))",display:"flex",flexDirection:"column",gap:12}}>
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+    <div style={{background:SURFACE,borderTop:`1px solid ${BORDER}`,borderRadius:"26px 26px 0 0",
+      width:"100%",maxWidth:520,maxHeight:"92vh",overflowY:"auto",color:TEXT,
+      padding:"10px 18px calc(24px + env(safe-area-inset-bottom))",display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{width:38,height:5,borderRadius:5,background:"#3f3f46",alignSelf:"center",marginBottom:2}}/>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span style={{color:MINT,fontWeight:700,fontSize:16,...mono}}>{title}</span>
-        <button onClick={onClose} style={{background:"none",border:"none",color:TEXT_DIM,fontSize:22,cursor:"pointer",lineHeight:1}}>✕</button>
+        <span style={{color:TEXT,fontWeight:700,fontSize:19,letterSpacing:"-0.01em",...mono}}>{title}</span>
+        <button onClick={onClose} aria-label="Schließen" style={{background:SURFACE2,border:"none",color:TEXT_DIM,width:32,height:32,borderRadius:16,fontSize:15,cursor:"pointer",lineHeight:1}}>✕</button>
       </div>
       {children}
     </div>
@@ -414,7 +421,7 @@ function PrinterSelect({value,onChange,printers}){
     {custom&&<div style={{display:"flex",gap:6}}>
       <input style={{...inputStyle,flex:1}} value={customVal} onChange={e=>setCustomVal(e.target.value)}
         placeholder="Druckername..." autoFocus onKeyDown={e=>e.key==="Enter"&&confirmCustom()}/>
-      <button onClick={confirmCustom} style={{background:MINT,color:"#000",border:"none",borderRadius:6,padding:"0 12px",cursor:"pointer",fontWeight:700,...mono}}>OK</button>
+      <button onClick={confirmCustom} style={{background:TEXT,color:BG,border:"none",borderRadius:6,padding:"0 12px",cursor:"pointer",fontWeight:700,...mono}}>OK</button>
     </div>}
   </div>;
 }
@@ -470,7 +477,7 @@ function LocationCombo({value,onChange}){
 }
 
 // ── QR Scanner Screen ──
-function QRScannerScreen({filaments}){
+function QRScannerScreen({filaments,onOpen}){
   const [result,setResult]=useState(null);
   const [error,setError]=useState("");
   const [status,setStatus]=useState("Wird gestartet...");
@@ -530,50 +537,47 @@ function QRScannerScreen({filaments}){
     f.stock?.some(s=>(s.location||"").toLowerCase()===result.toLowerCase())
   ):[];
 
-  return <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:12}}>
+  const zeilen=matched.flatMap(f=>f.stock.filter(s=>(s.location||"").toLowerCase()===result.toLowerCase()).map(s=>({f,s})));
+  return <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:12}}>
     {!result&&<>
-      <div style={{...mono,color:TEXT_DIM,fontSize:11,textAlign:"center"}}>QR-Code am Regal scannen</div>
-      <div id={divId} style={{borderRadius:10,overflow:"hidden",border:`2px solid ${MINT}`,background:"#000"}}/>
+      <div style={{fontSize:14,color:TEXT_DIM,textAlign:"center"}}>QR-Code am Regal in den Rahmen halten</div>
+      <div id={divId} style={{borderRadius:24,overflow:"hidden",background:"#000",boxShadow:`0 0 0 1px ${BORDER}`}}/>
       {error
-        ?<div style={{...mono,color:"#f87171",fontSize:11,textAlign:"center"}}>{error}</div>
-        :<div style={{...mono,color:TEXT_DIM,fontSize:10,textAlign:"center"}}>{status}</div>
+        ?<div style={{color:ROT,fontSize:13,textAlign:"center"}}>{error}</div>
+        :<div style={{color:TEXT_MUTED,fontSize:12,textAlign:"center"}}>{status}</div>
       }
     </>}
 
     {result&&<>
-      <button onClick={startScanner} style={{...mono,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:8,padding:"11px 0",cursor:"pointer",fontSize:12,width:"100%"}}>↩ Nochmal scannen</button>
-
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#071a0e",borderRadius:8,border:`1px solid ${MINT}`}}>
-        <span style={{fontSize:20}}>📦</span>
-        <div>
-          <div style={{...mono,color:MINT,fontSize:13,fontWeight:700}}>{result}</div>
-          <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{matched.length} Filament-Typ{matched.length!==1?"en":""} gelagert</div>
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:SURFACE,borderRadius:18}}>
+        <span style={{color:TEXT_DIM}}><Icon name="box" size={28}/></span>
+        <div style={{flex:1}}>
+          <div style={{fontSize:20,fontWeight:700}}>{result}</div>
+          <div style={{fontSize:12,color:TEXT_DIM}}>{zeilen.length} Spule{zeilen.length!==1?"n":""} in diesem Fach</div>
         </div>
       </div>
 
-      {matched.length===0&&<div style={{...mono,color:TEXT_DIM,fontSize:12,textAlign:"center",padding:"20px 0"}}>
-        Keine Spulen für „{result}" gefunden.<br/>
-        <span style={{fontSize:10}}>Lagerort beim Erfassen genau so eintragen.</span>
+      {zeilen.length===0&&<div style={{color:TEXT_DIM,fontSize:13,textAlign:"center",padding:"20px 0",lineHeight:1.6}}>
+        Keine Spulen für „{result}“ gefunden.<br/>
+        <span style={{fontSize:12,color:TEXT_MUTED}}>Den Lagerort beim Erfassen genau so eintragen.</span>
       </div>}
 
-      {matched.map(f=>{
-        const spools=f.stock.filter(s=>(s.location||"").toLowerCase()===result.toLowerCase());
-        return <div key={f.id} style={{background:SURFACE2,borderRadius:8,padding:"10px 12px",border:`1px solid ${BORDER}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-            <ColorChip hex={f.colorHex} size={22}/>
-            <div>
-              <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{f.brand} {f.colorName}</div>
-              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{f.material} · {f.diameter}mm</div>
-            </div>
+      {zeilen.map(({f,s})=>{
+        const p=calcPct(s.weight,startG(f,s));
+        return <button key={s.id} onClick={()=>onOpen&&onOpen(f,s.id)} style={{background:SURFACE,border:"none",borderRadius:16,padding:"10px 14px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",color:TEXT,textAlign:"left",font:"inherit"}}>
+          <Ring hex={f.colorHex} pct={p} size={44} dicke={5}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{f.colorName||"—"}</div>
+            <div style={{fontSize:12,color:TEXT_DIM}}>{f.brand} · {f.material}</div>
           </div>
-          {spools.map(s=>(
-            <div key={s.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderTop:`1px solid ${BORDER}`}}>
-              <span style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule</span>
-              <span style={{...mono,color:s.weight>=startG(f,s)?MINT:s.weight<=100?"#f87171":"#facc15",fontSize:11,fontWeight:700}}>{s.weight}g ({calcPct(s.weight,startG(f,s))}%)</span>
-            </div>
-          ))}
-        </div>;
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:15,fontWeight:700,color:p<KNAPP?ROT:TEXT}}>{s.weight} g</div>
+            <div style={{fontSize:11,color:TEXT_MUTED}}>{p} %</div>
+          </div>
+        </button>;
       })}
+
+      <button onClick={startScanner} style={{background:SURFACE2,color:TEXT,border:"none",borderRadius:14,padding:"13px 0",cursor:"pointer",fontSize:14,fontWeight:600,width:"100%",fontFamily:"inherit"}}>Nächstes Fach scannen</button>
     </>}
   </div>;
 }
@@ -632,12 +636,12 @@ function ListView({filaments,onEdit}){
 
   const rowColor={full:MINT,partial:"#facc15",inuse:"#60a5fa"};
   const rowIcon={full:"●",partial:"◑",inuse:"▶"};
-  const rowBg={full:"#071a0e",partial:"#1a1400",inuse:"#030d1a"};
-  const rowBorder={full:"#0e3018",partial:"#2e2000",inuse:"#0a1e30"};
+  const rowBg={full:"#17171b",partial:"#17171b",inuse:"#17171b"};
+  const rowBorder={full:"#2a2a31",partial:"#2a2a31",inuse:"#1f1f25"};
 
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
     <button onClick={()=>setSortIdx(i=>(i+1)%SORT_MODES.length)}
-      style={{alignSelf:"flex-end",...mono,fontSize:10,color:MINT,background:"#071a0e",border:"1px solid #0e3018",borderRadius:5,padding:"4px 10px",cursor:"pointer"}}>
+      style={{alignSelf:"flex-end",...mono,fontSize:10,color:MINT,background:"#17171b",border:"1px solid #2a2a31",borderRadius:5,padding:"4px 10px",cursor:"pointer"}}>
       {SORT_MODES[sortIdx].label}
     </button>
     {grouped.map(({label,rows},gi)=>(
@@ -673,113 +677,427 @@ function Icon3D({color="#60a5fa",size=13}){
   </svg>;
 }
 
-// ── Filament Card ──
-function FilamentCard({fil,onEdit,onDelete}){
-  const fw=fil.fullWeight||1000;
-  const stock=fil.stock||[];
-  const inUse=fil.inUse||[];
-  const totalCount=stock.length+inUse.length;
-  const hasLow=[...stock,...inUse].some(s=>s.weight<=100);
-  const [rfid,setRfid]=useState(false);
+// ── Icons (Linien-Icons, eine Pfadangabe je Icon) ──
+const ICONS={
+  home:"M5 12H3l9-9 9 9h-2 M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7",
+  search:"M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M21 21l-6-6",
+  scan:"M4 7V6a2 2 0 0 1 2-2h2 M4 17v1a2 2 0 0 0 2 2h2 M16 4h2a2 2 0 0 1 2 2v1 M16 20h2a2 2 0 0 0 2-2v-1 M5 12h14",
+  scale:"M7 20h10 M6 6l6-1 6 1 M12 3v17 M9 12L6 6l-3 6a3 3 0 0 0 6 0 M21 12l-3-6-3 6a3 3 0 0 0 6 0",
+  settings:"M4 6h8 M16 6h4 M14 4v4 M4 12h2 M10 12h10 M8 10v4 M4 18h11 M19 18h1 M17 16v4",
+  plus:"M12 5v14 M5 12h14",
+  back:"M15 6l-6 6 6 6",
+  next:"M9 6l6 6-6 6",
+  dots:"M5 12h.01 M12 12h.01 M19 12h.01",
+  nfc:"M11 20a3 3 0 0 1-3-3V6l5 5 M13 4a3 3 0 0 1 3 3v11l-5-5 M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z",
+  printer:"M17 17h2a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h2 M17 9V5a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v4 M9 13h6a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z",
+  box:"M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3 M12 12l8-4.5 M12 12v9 M12 12L4 7.5",
+  cart:"M4 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M15 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M17 17H6V3H4 M6 5l14 1-1 7H6",
+  list:"M9 6h11 M9 12h11 M9 18h11 M5 6v.01 M5 12v.01 M5 18v.01",
+  grid:"M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z",
+  edit:"M4 20h4L18.5 9.5a2.8 2.8 0 0 0-4-4L4 16v4 M13.5 6.5l4 4",
+  trash:"M4 7h16 M10 11v6 M14 11v6 M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12 M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3",
+  qr:"M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h2 M20 14v2 M14 18v2h2 M18 18h2v2",
+  camera:"M5 7h1a2 2 0 0 0 2-2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1a2 2 0 0 0 2 2h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2 M9 13a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
+};
+function Icon({name,size=20,color="currentColor",stroke=1.8}){
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={stroke}
+    strokeLinecap="round" strokeLinejoin="round" style={{display:"block",flexShrink:0}}><path d={ICONS[name]}/></svg>;
+}
 
-  const fullStock=stock.filter(s=>s.weight>=startG(fil,s));
-  const partialStock=stock.filter(s=>s.weight<startG(fil,s));
+// ── Farben & Füllstand ──
+const KNAPP=15; // unter 15 % gilt eine Spule als fast leer
+function hauptfarbe(hex){return (Array.isArray(hex)?hex[0]:hex)||"#71717a";}
+// Sehr dunkle Filamentfarben (Schwarz) wären auf dem dunklen Hintergrund unsichtbar → etwas aufhellen
+function sichtbareFarbe(c){
+  const m=/^#?([0-9a-f]{6})$/i.exec(String(c||"").trim());
+  if(!m)return c||"#71717a";
+  const v=parseInt(m[1],16), r=v>>16&255, g=v>>8&255, b=v&255;
+  if((0.2126*r+0.7152*g+0.0722*b)/255>=0.18)return "#"+m[1];
+  const mix=(x,y)=>Math.round(x+(y-x)*0.45);
+  return `rgb(${mix(r,161)},${mix(g,161)},${mix(b,170)})`;
+}
+function spulenVon(fil){return [...(fil.stock||[]),...(fil.inUse||[])];}
+// Nachkaufen: alle Spulen zusammen haben weniger als 15 % einer vollen Spule (oder es gibt keine mehr)
+function knapp(fil){
+  const sp=spulenVon(fil);
+  if(!sp.length)return true;
+  return sp.reduce((a,s)=>a+(s.weight||0),0)<startG(fil)*KNAPP/100;
+}
+// Für die Lager-Kachel: die angebrochenste Lager-Spule
+function repSpule(fil){
+  const st=[...(fil.stock||[])].sort((a,b)=>a.weight/startG(fil,a)-b.weight/startG(fil,b));
+  return st[0]||null;
+}
 
-  // Volle Spulen je Lagerort (und Startgewicht) zusammenfassen
-  const fullGroups=Object.values(fullStock.reduce((acc,s)=>{
-    const loc=s.location||"Lager", start=startG(fil,s), k=loc+"|"+start;
-    if(!acc[k])acc[k]={loc,start,cnt:0};
-    acc[k].cnt++;
-    return acc;
-  },{}));
-  // kleine Zeile unter dem Balken: wann zuletzt gewogen
-  const gewogen=s=>s.gewogenAm&&<div style={{...mono,color:TEXT_MUTED,fontSize:9,marginTop:3,textAlign:"right"}}>⚖️ gewogen: {gewogenText(s.gewogenAm)}</div>;
+// ── Drucker-Einheiten und Slots ──
+// Ein Drucker besteht aus Einheiten (z.B. AMS A mit 4 Slots, externe Spule mit 1 Slot).
+function einheitenVon(einheiten,drucker){
+  const e=einheiten[drucker];
+  if(Array.isArray(e)&&e.length)return e;
+  if(/indx/i.test(drucker))return [{name:"INDX",slots:8}];
+  if(/bambu|h2c|h2d|x1|p1s|p2s/i.test(drucker))return [{name:"A",slots:4},{name:"Ext",slots:1}];
+  return [{name:"",slots:1}];
+}
+// Slot-Namen wie am Drucker: A1–A4, Ext, HT – bei langen Namen (INDX) einfach 1–8
+function slotNamen(einheit){
+  const n=Math.max(1,einheit.slots|0), name=(einheit.name||"").trim();
+  if(n===1)return [name||"1"];
+  const pre=name.length<=3?name:"";
+  return Array.from({length:n},(_,i)=>`${pre}${i+1}`);
+}
+// Welche Spule liegt in welchem Slot? Spulen ohne (gültigen) Slot rücken in den ersten freien.
+function belegung(filaments,drucker,einheiten){
+  const proDrucker={};
+  for(const fil of filaments)for(const s of fil.inUse||[])(proDrucker[s.printer]=proDrucker[s.printer]||[]).push({fil,spool:s});
+  const out={};
+  for(const p of drucker){
+    const gruppen=einheitenVon(einheiten,p).map(e=>({name:e.name,slots:slotNamen(e).map(n=>({name:n,belegt:null}))}));
+    const flach=gruppen.flatMap(g=>g.slots), ohne=[], extra=[];
+    for(const x of proDrucker[p]||[]){
+      const sl=flach.find(s=>s.name===x.spool.slot);
+      if(sl&&!sl.belegt)sl.belegt=x;else ohne.push(x);
+    }
+    for(const x of ohne){const frei=flach.find(s=>!s.belegt);if(frei)frei.belegt=x;else extra.push(x);}
+    out[p]={gruppen,slots:flach,extra,anzahl:flach.length};
+  }
+  return out;
+}
 
-  return <div style={{background:SURFACE,border:`1px solid ${inUse.length>0?"#1a4020":BORDER}`,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
-    {/* Header */}
-    <div style={{display:"flex",alignItems:"center",gap:10}}>
-      <ColorChip hex={fil.colorHex} size={32}/>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{color:TEXT,fontWeight:700,fontSize:14,...mono,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-          {fil.brand||"—"} <span style={{color:TEXT_DIM,fontWeight:400}}>{fil.colorName}</span>
-        </div>
-        <div style={{display:"flex",gap:5,marginTop:3,flexWrap:"wrap"}}>
-          <Badge color={MINT}>{fil.material}</Badge>
-          <Badge>{fil.diameter}mm</Badge>
-          <Badge>Start {fw}g</Badge>
-          <Badge color={hasLow?"#ff2020":TEXT_DIM}>{totalCount} Spule{totalCount!==1?"n":""}</Badge>
-        </div>
-      </div>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>setRfid(true)} title="RFID-Tag schreiben" style={{background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:6,padding:"6px 9px",cursor:"pointer",fontSize:13}}>📡</button>
-        <button onClick={()=>onEdit(fil)} style={{background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,borderRadius:6,padding:"6px 9px",cursor:"pointer",fontSize:13}}>✏️</button>
-        <button onClick={()=>onDelete(fil.id)} style={{background:"#1a0808",color:"#f87171",border:"1px solid #2e1010",borderRadius:6,padding:"6px 9px",cursor:"pointer",fontSize:13}}>✕</button>
-      </div>
-    </div>
-
-    {/* Stock */}
-    {stock.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
-      <div style={{...mono,color:TEXT_DIM,fontSize:9,letterSpacing:"0.1em",marginBottom:2}}>📦 LAGER</div>
-
-      {/* Full spools — compact, mint green */}
-      {fullGroups.map(({loc,start,cnt})=>(
-        <div key={"full-"+loc+"-"+start} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 8px",background:"#071a0e",borderRadius:5,border:"1px solid #0e3018"}}>
-          <span style={{color:MINT,fontSize:12}}>●</span>
-          <span style={{...mono,color:MINT,fontSize:11,flex:1}}>{cnt>1?`${cnt}× `:""}{loc}</span>
-          <span style={{...mono,color:MINT,fontSize:10,opacity:0.7}}>voll · {start}g</span>
-        </div>
-      ))}
-
-      {/* Partial spools — yellow with bar */}
-      {partialStock.map(s=>(
-        <div key={s.id} style={{padding:"6px 8px",background:"#1a1400",borderRadius:5,border:"1px solid #2e2000"}}>
-          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
-            <span style={{color:"#facc15",fontSize:12}}>◑</span>
-            <span style={{...mono,color:"#facc15",fontSize:11,flex:1}}>{s.location||"Lager"}</span>
-            <span style={{...mono,color:s.weight<=100?"#ff2020":"#facc15",fontSize:11,fontWeight:700}}>
-              {s.weight}g <span style={{color:TEXT_MUTED,fontWeight:400}}>/ {startG(fil,s)}g ({calcPct(s.weight,startG(fil,s))}%)</span>
-            </span>
-          </div>
-          <RemainingBar weight={s.weight} fullWeight={startG(fil,s)}/>
-          {gewogen(s)}
-        </div>
-      ))}
-    </div>}
-
-    {/* Notes */}
-    {fil.notes&&<div style={{...mono,color:TEXT_DIM,fontSize:10,borderTop:`1px solid ${BORDER}`,paddingTop:6}}>
-      📋 {fil.notes}
-    </div>}
-
-    {/* In Use */}
-    {inUse.length>0&&<div style={{borderTop:`1px solid ${BORDER}`,paddingTop:8,display:"flex",flexDirection:"column",gap:4}}>
-      <div style={{...mono,color:TEXT_DIM,fontSize:9,letterSpacing:"0.1em",marginBottom:2,display:"flex",alignItems:"center"}}><Icon3D color={TEXT_DIM} size={11}/>IN GEBRAUCH</div>
-      {inUse.map(u=>(
-        <div key={u.id} style={{padding:"6px 8px",background:"#030d1a",borderRadius:5,border:"1px solid #0a1e30"}}>
-          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
-            <span style={{color:"#60a5fa",fontSize:12}}>▶</span>
-            <span style={{...mono,color:"#60a5fa",fontSize:11,flex:1}}>{u.printer}</span>
-            <span style={{...mono,color:u.weight<=100?"#ff2020":"#60a5fa",fontSize:11,fontWeight:700}}>
-              {u.weight}g <span style={{color:TEXT_MUTED,fontWeight:400}}>/ {startG(fil,u)}g ({calcPct(u.weight,startG(fil,u))}%)</span>
-            </span>
-          </div>
-          <RemainingBar weight={u.weight} fullWeight={startG(fil,u)}/>
-          {gewogen(u)}
-        </div>
-      ))}
-    </div>}
-    {rfid&&<RfidWriteModal fil={fil} onClose={()=>setRfid(false)}/>}
+// ── Füllstands-Ring ──
+// Füllt sich beim Erscheinen animiert auf den aktuellen Stand.
+function Ring({hex,pct=0,size=64,dicke=7,leer=false,children}){
+  const [p,setP]=useState(0);
+  useEffect(()=>{const t=requestAnimationFrame(()=>setP(pct));return ()=>cancelAnimationFrame(t);},[pct]);
+  const r=size/2-dicke/2-1, C=2*Math.PI*r, farbe=sichtbareFarbe(hauptfarbe(hex)), innen=r-dicke/2-3;
+  return <div style={{position:"relative",width:size,height:size,flexShrink:0}}>
+    {!leer&&innen>2&&<div style={{position:"absolute",left:size/2-innen,top:size/2-innen,width:innen*2,height:innen*2,
+      borderRadius:"50%",background:colorBg(hex),opacity:0.2}}/>}
+    <svg width={size} height={size} style={{display:"block",position:"relative"}}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={leer?"#3a3a42":"#26262c"} strokeWidth={leer?1.5:dicke} strokeDasharray={leer?"3 4":undefined}/>
+      {!leer&&p>0&&<circle cx={size/2} cy={size/2} r={r} fill="none" stroke={farbe} strokeWidth={dicke} strokeLinecap="round"
+        strokeDasharray={`${Math.max(0.5,p/100*C)} ${C}`} transform={`rotate(-90 ${size/2} ${size/2})`}
+        style={{transition:"stroke-dasharray 0.9s cubic-bezier(.2,.8,.2,1)"}}/>}
+    </svg>
+    {children&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center"}}>{children}</div>}
   </div>;
 }
 
+const bloss={background:"none",border:"none",padding:0,cursor:"pointer",color:"inherit",font:"inherit"};
+const etikett={...mono,fontSize:11,color:TEXT_MUTED,letterSpacing:"0.08em",fontWeight:600};
+
+// ── Startseite: Drucker ──
+function SlotZelle({slot,size,zeigeName,kompakt,onClick}){
+  const b=slot.belegt;
+  const pct=b?calcPct(b.spool.weight,startG(b.fil,b.spool)):0;
+  const rot=b&&pct<KNAPP;
+  return <button onClick={onClick} title={b?`${slot.name}: ${b.fil.brand} ${b.fil.colorName}`:`${slot.name}: leer`}
+    style={{...bloss,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
+    <Ring hex={b?.fil.colorHex} pct={pct} size={size} dicke={kompakt?3:size>40?5:4} leer={!b}>
+      {zeigeName&&!kompakt&&<span style={{fontSize:10,color:TEXT_DIM,fontWeight:600}}>{slot.name}</span>}
+    </Ring>
+    {!kompakt&&<span style={{fontSize:11,color:rot?ROT:b?TEXT_DIM:TEXT_MUTED,whiteSpace:"nowrap",fontWeight:rot?700:400}}>
+      {b?(size>40?`${b.spool.weight} g`:b.spool.weight):"leer"}</span>}
+  </button>;
+}
+function DruckerKarte({name,plan,onSlot}){
+  const [offen,setOffen]=useState(false);
+  // ab 3 AMS (über 12 Slots) zugeklappt als kleine Punkte, sonst passt es nicht aufs Handy
+  const klappbar=plan.anzahl>12, kompakt=klappbar&&!offen;
+  const belegtN=plan.slots.filter(s=>s.belegt).length;
+  const mehrereGruppen=plan.gruppen.length>1;
+  return <div style={{background:SURFACE,borderRadius:18,padding:"12px 12px 8px",marginBottom:8}}>
+    <button onClick={()=>klappbar&&setOffen(o=>!o)} style={{...bloss,width:"100%",display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10,cursor:klappbar?"pointer":"default"}}>
+      <span style={{fontSize:14,fontWeight:600,color:TEXT}}>{name}</span>
+      <span style={{fontSize:11,color:TEXT_MUTED}}>{belegtN} von {plan.anzahl} belegt{klappbar?(offen?"  ▴":"  ▾"):""}</span>
+    </button>
+    {plan.gruppen.map((g,gi)=>{
+      const gross=g.slots.length<=4;
+      return <div key={gi} style={{display:"flex",alignItems:"center",gap:8,marginBottom:kompakt?6:8}}>
+        {mehrereGruppen&&<span style={{width:28,fontSize:11,color:TEXT_MUTED,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis"}}>{g.name}</span>}
+        <div style={{flex:1,display:"grid",gridTemplateColumns:`repeat(${kompakt?8:Math.max(g.slots.length,4)},minmax(0,1fr))`,gap:4,justifyItems:kompakt?"start":"center"}}>
+          {g.slots.map(s=><SlotZelle key={s.name} slot={s} size={kompakt?18:gross?46:32} kompakt={kompakt}
+            zeigeName={g.slots.length>1||mehrereGruppen} onClick={()=>onSlot(name,s)}/>)}
+        </div>
+      </div>;
+    })}
+    {plan.extra.length>0&&<div style={{fontSize:11,color:"#facc15",marginBottom:4}}>+{plan.extra.length} Spule{plan.extra.length>1?"n":""} ohne freien Slot – Slots in ⚙️ prüfen</div>}
+  </div>;
+}
+function DruckerKachel({name,plan,onSlot}){
+  const s=plan.slots[0], b=s.belegt;
+  const pct=b?calcPct(b.spool.weight,startG(b.fil,b.spool)):0;
+  return <button onClick={()=>onSlot(name,s)} style={{...bloss,background:SURFACE,borderRadius:16,padding:10,display:"flex",alignItems:"center",gap:10,textAlign:"left",minWidth:0}}>
+    <Ring hex={b?.fil.colorHex} pct={pct} size={40} dicke={5} leer={!b}/>
+    <div style={{minWidth:0}}>
+      <div style={{fontSize:11,color:TEXT_DIM,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{name}</div>
+      <div style={{fontSize:14,fontWeight:600,color:b?(pct<KNAPP?ROT:TEXT):TEXT_MUTED}}>{b?`${b.spool.weight} g`:"leer"}</div>
+      {b&&<div style={{fontSize:11,color:TEXT_MUTED,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{b.fil.colorName||b.fil.material}</div>}
+      {plan.extra.length>0&&<div style={{fontSize:10,color:"#facc15"}}>+{plan.extra.length} weitere</div>}
+    </div>
+  </button>;
+}
+
+// ── Startseite: Lager ──
+function LagerKachel({fil,spool,onClick}){
+  const anzahl=(fil.stock||[]).length;
+  const pct=spool?calcPct(spool.weight,startG(fil,spool)):0;
+  const rot=!spool||pct<KNAPP;
+  return <button onClick={onClick} style={{...bloss,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0,padding:"4px 0"}}>
+    <div style={{position:"relative"}}>
+      <Ring hex={fil.colorHex} pct={pct} size={68} dicke={7} leer={!spool}/>
+      {anzahl>1&&<span style={{position:"absolute",top:-2,right:-6,background:TEXT,color:BG,fontSize:10,fontWeight:700,borderRadius:99,padding:"1px 6px"}}>×{anzahl}</span>}
+    </div>
+    <div style={{fontSize:13,fontWeight:600,color:rot?ROT:TEXT}}>{spool?`${spool.weight} g`:"leer"}</div>
+    <div style={{fontSize:11,color:TEXT_DIM,maxWidth:"100%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fil.colorName||"—"}</div>
+    <div style={{fontSize:10,color:TEXT_MUTED,maxWidth:"100%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fil.brand} {fil.material}</div>
+  </button>;
+}
+
+// ── Spulen-Detail ──
+function SpulenDetail({fil,spoolId,ortVon,onSpool,onBack,onEdit,onDelete,onAddSpool,onWiegen,onRfid,onPlatz}){
+  const [menu,setMenu]=useState(false);
+  const spulen=[
+    ...(fil.stock||[]).map(s=>({s,imDrucker:false})),
+    ...(fil.inUse||[]).map(s=>({s,imDrucker:true})),
+  ];
+  const akt=spulen.find(x=>x.s.id===spoolId)||spulen[0]||null;
+  const farbe=sichtbareFarbe(hauptfarbe(fil.colorHex));
+  const start=akt?startG(fil,akt.s):startG(fil);
+  const pct=akt?calcPct(akt.s.weight,start):0;
+  const kachel={...bloss,flex:1,background:SURFACE,borderRadius:16,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontSize:12,color:TEXT};
+  const menuBtn={...bloss,display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",fontSize:14,textAlign:"left"};
+
+  return <div style={{minHeight:"100%",background:`radial-gradient(120% 55% at 50% 0%, ${farbe}38 0%, transparent 70%)`,padding:"calc(14px + env(safe-area-inset-top)) 16px 0"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",position:"relative"}}>
+      <button onClick={onBack} aria-label="Zurück" style={{...bloss,padding:6,color:TEXT_DIM}}><Icon name="back" size={24}/></button>
+      <button onClick={()=>setMenu(m=>!m)} aria-label="Mehr" style={{...bloss,padding:6,color:TEXT_DIM}}><Icon name="dots" size={24} stroke={3}/></button>
+      {menu&&<>
+        <div onClick={()=>setMenu(false)} style={{position:"fixed",inset:0,zIndex:30}}/>
+        <div style={{position:"absolute",right:0,top:40,zIndex:31,background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:14,minWidth:210,overflow:"hidden",boxShadow:"0 12px 32px rgba(0,0,0,0.5)"}}>
+          <button onClick={()=>{setMenu(false);onEdit();}} style={menuBtn}><Icon name="edit" size={18}/>Bearbeiten</button>
+          <button onClick={()=>{setMenu(false);onAddSpool();}} style={menuBtn}><Icon name="plus" size={18}/>Spule hinzufügen</button>
+          <button onClick={()=>{setMenu(false);onDelete();}} style={{...menuBtn,color:ROT,borderTop:`1px solid ${BORDER}`}}><Icon name="trash" size={18}/>Filament löschen</button>
+        </div>
+      </>}
+    </div>
+
+    <div style={{display:"flex",justifyContent:"center",margin:"4px 0 10px"}}>
+      <Ring hex={fil.colorHex} pct={pct} size={212} dicke={16} leer={!akt}>
+        {akt?<>
+          <div style={{fontSize:46,fontWeight:700,letterSpacing:"-0.03em",lineHeight:1,color:pct<KNAPP?ROT:TEXT}}>{akt.s.weight}<span style={{fontSize:17,color:TEXT_DIM,fontWeight:500}}> g</span></div>
+          <div style={{fontSize:12,color:TEXT_DIM,marginTop:6}}>von {start} g · {pct} %</div>
+        </>:<div style={{fontSize:14,color:TEXT_MUTED}}>Keine Spule</div>}
+      </Ring>
+    </div>
+
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:13,color:TEXT_DIM}}>{[fil.brand,fil.material,fil.diameter&&`${fil.diameter} mm`].filter(Boolean).join(" · ")}</div>
+      <div style={{fontSize:25,fontWeight:700,letterSpacing:"-0.02em",marginTop:2}}>{fil.colorName||"Ohne Farbname"}</div>
+      {akt&&<div style={{fontSize:12,color:TEXT_DIM,marginTop:6,display:"flex",justifyContent:"center",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+        <Icon name={akt.imDrucker?"printer":"box"} size={14}/>{ortVon(akt.s,akt.imDrucker)}
+        {akt.s.gewogenAm&&<><span style={{color:TEXT_MUTED}}>·</span><Icon name="scale" size={14}/>gewogen {gewogenText(akt.s.gewogenAm)}</>}
+      </div>}
+    </div>
+
+    <div style={{display:"flex",gap:8,margin:"18px 0 18px"}}>
+      {akt?<>
+        <button onClick={onWiegen} style={kachel}><Icon name="scale" size={22}/>Wiegen</button>
+        <button onClick={()=>onRfid(akt.s.id)} style={kachel}><Icon name="nfc" size={22}/>Tag schreiben</button>
+        <button onClick={()=>onPlatz(akt.s)} style={kachel}><Icon name={akt.imDrucker?"box":"printer"} size={22}/>{akt.imDrucker?"Ins Lager":"In Drucker"}</button>
+      </>:<button onClick={onAddSpool} style={{...kachel,background:TEXT,color:BG,fontWeight:700,fontSize:14,flexDirection:"row",justifyContent:"center"}}><Icon name="plus" size={18}/>Spule hinzufügen</button>}
+    </div>
+
+    {spulen.length>0&&<>
+      <div style={{...etikett,marginBottom:8}}>{spulen.length} SPULE{spulen.length!==1?"N":""}</div>
+      {spulen.map(({s,imDrucker})=>{
+        const st=startG(fil,s), p=calcPct(s.weight,st), aktiv=akt&&s.id===akt.s.id;
+        return <button key={s.id} onClick={()=>onSpool(s.id)} style={{...bloss,width:"100%",display:"block",textAlign:"left",background:SURFACE,borderRadius:14,padding:"10px 12px",marginBottom:6,
+          boxShadow:aktiv?`inset 0 0 0 1.5px ${farbe}`:"none"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14}}>
+            <span style={{color:TEXT_DIM}}><Icon name={imDrucker?"printer":"box"} size={16}/></span>
+            <span style={{flex:1,minWidth:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ortVon(s,imDrucker)}</span>
+            <span style={{fontWeight:700,color:p<KNAPP?ROT:TEXT}}>{s.weight} g</span>
+          </div>
+          <div style={{height:4,background:"#26262c",borderRadius:4,marginTop:8,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${p}%`,background:farbe,borderRadius:4,transition:"width .6s"}}/>
+          </div>
+        </button>;
+      })}
+    </>}
+    {fil.notes&&<div style={{background:SURFACE,borderRadius:14,padding:"10px 12px",marginTop:4,fontSize:13,color:TEXT_DIM,lineHeight:1.5}}>{fil.notes}</div>}
+  </div>;
+}
+
+// ── Spule in Drucker / ins Lager ──
+function PlatzModal({fil,spool,imDrucker,drucker,belegt,onMove,onClose}){
+  const [ziel,setZiel]=useState(null);
+  const [ort,setOrt]=useState(loadCustomLocs()[0]||"Lager");
+  const [gewicht,setGewicht]=useState(String(spool.weight));
+  function waehleSlot(p,slot){
+    const b=slot.belegt;
+    if(b&&b.spool.id===spool.id){onClose();return;}
+    if(b){
+      const wo=belegt[p].anzahl>1?`Slot ${slot.name} von ${p}`:p;
+      if(!confirm(`In ${wo} liegt ${b.fil.brand} ${b.fil.colorName} (${b.spool.weight} g).\nErsetzen? Die alte Spule geht ins Lager.`))return;
+    }
+    onMove({printer:p,slot:slot.name});
+  }
+  function waehleDrucker(p){
+    const plan=belegt[p];
+    if(plan.anzahl===1)waehleSlot(p,plan.slots[0]);
+    else setZiel(p);
+  }
+  const kopf=<div style={{display:"flex",alignItems:"center",gap:12}}>
+    <Ring hex={fil.colorHex} pct={calcPct(spool.weight,startG(fil,spool))} size={44} dicke={5}/>
+    <div><div style={{fontSize:15,fontWeight:600}}>{fil.brand} {fil.colorName}</div>
+      <div style={{fontSize:12,color:TEXT_DIM}}>{fil.material} · {spool.weight} g</div></div>
+  </div>;
+  const btn={...bloss,background:SURFACE2,borderRadius:14,padding:"12px",textAlign:"left",color:TEXT};
+
+  if(ziel){
+    const plan=belegt[ziel];
+    return <Modal title={ziel} onClose={onClose}>
+      {kopf}
+      <div style={{fontSize:13,color:TEXT_DIM}}>In welchen Slot?</div>
+      {plan.gruppen.map((g,gi)=><div key={gi}>
+        {plan.gruppen.length>1&&<div style={{...etikett,marginBottom:6}}>{g.name||"Slots"}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+          {g.slots.map(s=>{
+            const b=s.belegt, selbst=b&&b.spool.id===spool.id;
+            return <button key={s.name} onClick={()=>waehleSlot(ziel,s)} style={{...bloss,background:b?SURFACE2:"transparent",border:`1.5px ${b?"solid":"dashed"} ${b?BORDER:"#52525b"}`,
+              borderRadius:14,padding:"8px 4px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,opacity:selbst?0.5:1}}>
+              <Ring hex={b?.fil.colorHex} pct={b?calcPct(b.spool.weight,startG(b.fil,b.spool)):0} size={34} dicke={4} leer={!b}/>
+              <span style={{fontSize:12,fontWeight:700}}>{s.name}</span>
+              <span style={{fontSize:10,color:b?TEXT_DIM:MINT}}>{selbst?"hier":b?`${b.spool.weight} g`:"frei"}</span>
+            </button>;
+          })}
+        </div>
+      </div>)}
+      <button onClick={()=>setZiel(null)} style={{...bloss,color:TEXT_DIM,fontSize:13,padding:"6px 0"}}>‹ anderer Drucker</button>
+    </Modal>;
+  }
+
+  return <Modal title={imDrucker?"Ins Lager":"In Drucker einlegen"} onClose={onClose}>
+    {kopf}
+    {imDrucker&&<div style={{background:SURFACE2,borderRadius:14,padding:12,display:"flex",flexDirection:"column",gap:10}}>
+      <Field label="LAGERORT"><LocationCombo value={ort} onChange={setOrt}/></Field>
+      <Field label="RESTGEWICHT (g)"><input style={inputStyle} type="number" value={gewicht} onChange={e=>setGewicht(e.target.value)}/></Field>
+      <button onClick={()=>onMove({location:ort||"Lager",weight:parseInt(gewicht)||0})} style={{...bloss,background:TEXT,color:BG,borderRadius:12,padding:"12px 0",fontWeight:700,fontSize:14,textAlign:"center"}}>Ins Lager legen</button>
+    </div>}
+    <div style={{...etikett,marginTop:imDrucker?6:0}}>{imDrucker?"ODER IN ANDEREN DRUCKER":"DRUCKER WÄHLEN"}</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+      {drucker.map(p=>{
+        const plan=belegt[p], frei=plan.slots.filter(s=>!s.belegt).length;
+        return <button key={p} onClick={()=>waehleDrucker(p)} style={btn}>
+          <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p}</div>
+          <div style={{fontSize:11,color:frei?MINT:TEXT_MUTED,marginTop:2}}>{plan.anzahl===1?(frei?"frei":"belegt"):`${frei} von ${plan.anzahl} frei`}</div>
+        </button>;
+      })}
+    </div>
+    {drucker.length===0&&<div style={{fontSize:12,color:TEXT_MUTED}}>Noch keine Drucker – in ⚙️ anlegen.</div>}
+  </Modal>;
+}
+
+// ── Leeren Slot füllen: Spule aus dem Lager wählen ──
+function SlotFuellenModal({drucker,slot,mehrereSlots,filaments,onPick,onClose}){
+  const [q,setQ]=useState("");
+  const such=q.trim().toLowerCase();
+  const liste=[];
+  for(const fil of filaments)for(const s of fil.stock||[]){
+    if(such&&!`${fil.brand} ${fil.colorName} ${fil.material} ${s.location}`.toLowerCase().includes(such))continue;
+    liste.push({fil,s});
+  }
+  liste.sort((a,b)=>`${a.fil.material} ${a.fil.brand} ${a.fil.colorName}`.localeCompare(`${b.fil.material} ${b.fil.brand} ${b.fil.colorName}`));
+  return <Modal title={mehrereSlots?`${drucker} · ${slot}`:drucker} onClose={onClose}>
+    <div style={{fontSize:13,color:TEXT_DIM}}>Welche Spule aus dem Lager einlegen?</div>
+    <input style={inputStyle} value={q} onChange={e=>setQ(e.target.value)} placeholder="Suchen: Farbe, Marke, Material…"/>
+    {liste.length===0&&<div style={{fontSize:13,color:TEXT_MUTED,textAlign:"center",padding:"16px 0"}}>Keine passende Spule im Lager.</div>}
+    {liste.map(({fil,s})=><button key={s.id} onClick={()=>onPick(fil.id,s.id)} style={{...bloss,display:"flex",alignItems:"center",gap:12,background:SURFACE2,borderRadius:14,padding:"8px 12px",textAlign:"left"}}>
+      <Ring hex={fil.colorHex} pct={calcPct(s.weight,startG(fil,s))} size={36} dicke={4}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fil.colorName||"—"} <span style={{color:TEXT_DIM,fontWeight:400}}>{fil.brand}</span></div>
+        <div style={{fontSize:11,color:TEXT_MUTED}}>{fil.material} · {s.location||"Lager"}</div>
+      </div>
+      <span style={{fontSize:13,fontWeight:700}}>{s.weight} g</span>
+    </button>)}
+  </Modal>;
+}
+
+// ── Scannen (großer Knopf in der Mitte) ──
+function ScanSheet({filaments,onGefunden,onNeu,onQR,onClose}){
+  const [scanning,setScanning]=useState(false);
+  const [fehler,setFehler]=useState("");
+  const [treffer,setTreffer]=useState(null);
+  async function handlePhoto(e){
+    const file=e.target.files[0];if(!file)return;
+    const apiKey=loadApiKey();
+    if(!apiKey){setFehler("Kein API-Key – bitte in ⚙️ eintragen.");return;}
+    setFehler("");setTreffer(null);setScanning(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      try{
+        const scan=await scanLabel(reader.result.split(",")[1],file.type,"find",apiKey);
+        const t=filaments.map(f=>({fil:f,score:matchScore(f,scan)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
+        setTreffer(t);
+      }catch(err){setFehler("Scan fehlgeschlagen: "+err.message);}
+      setScanning(false);
+    };
+    reader.readAsDataURL(file);
+  }
+  const option={...bloss,display:"flex",alignItems:"center",gap:14,background:SURFACE2,borderRadius:16,padding:"14px 16px",textAlign:"left",width:"100%"};
+  const titel=(t,u)=><div><div style={{fontSize:15,fontWeight:600}}>{t}</div><div style={{fontSize:12,color:TEXT_DIM,marginTop:2}}>{u}</div></div>;
+  return <Modal title="Scannen" onClose={onClose}>
+    <label style={{...option,cursor:"pointer"}}>
+      <Icon name="camera" size={26}/>{titel(scanning?"Erkenne Etikett…":"Spule finden","Etikett fotografieren – öffnet die passende Spule")}
+      <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}}/>
+    </label>
+    {fehler&&<div style={{color:ROT,fontSize:12}}>{fehler}</div>}
+    {treffer&&treffer.length===0&&<div style={{fontSize:13,color:TEXT_DIM}}>Nichts Passendes gefunden. Neu anlegen?</div>}
+    {treffer&&treffer.map(({fil})=><button key={fil.id} onClick={()=>onGefunden(fil)} style={{...option,padding:"10px 14px"}}>
+      <Ring hex={fil.colorHex} pct={(()=>{const s=repSpule(fil)||spulenVon(fil)[0];return s?calcPct(s.weight,startG(fil,s)):0;})()} size={36} dicke={4}/>
+      {titel(`${fil.brand} ${fil.colorName}`,`${fil.material} · ${spulenVon(fil).length} Spulen`)}
+    </button>)}
+    <button onClick={onNeu} style={option}><Icon name="plus" size={26}/>{titel("Neue Spule anlegen","Etikett scannen oder von Hand eintragen")}</button>
+    <button onClick={onQR} style={option}><Icon name="qr" size={26}/>{titel("Regal-QR scannen","Zeigt, was in diesem Fach liegt")}</button>
+  </Modal>;
+}
+
+// ── Drucker-Einheiten bearbeiten (Einstellungen) ──
+function EinheitenEditor({drucker,einheiten,setEinheiten}){
+  const klein={...bloss,fontSize:12,color:TEXT_DIM,border:`1px dashed ${BORDER}`,borderRadius:8,padding:"6px 0",width:"100%",textAlign:"center"};
+  return <div style={{display:"flex",flexDirection:"column",gap:8}}>
+    {drucker.map(p=>{
+      const liste=einheitenVon(einheiten,p);
+      const setze=neu=>setEinheiten(e=>({...e,[p]:neu}));
+      const summe=liste.reduce((a,e)=>a+Math.max(1,e.slots|0),0);
+      return <div key={p} style={{background:SURFACE2,borderRadius:14,padding:"10px 12px",display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{fontSize:14,fontWeight:600}}>{p} <span style={{color:TEXT_MUTED,fontWeight:400,fontSize:12}}>· {summe} Slot{summe!==1?"s":""}</span></div>
+        {liste.map((e,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center"}}>
+          <input style={{...inputStyle,flex:1}} value={e.name} placeholder="Name, z.B. A oder Ext"
+            onChange={ev=>setze(liste.map((x,j)=>j===i?{...x,name:ev.target.value}:x))}/>
+          <input style={{...inputStyle,width:60,textAlign:"center"}} type="number" min="1" max="16" value={e.slots}
+            onChange={ev=>setze(liste.map((x,j)=>j===i?{...x,slots:Math.max(1,Math.min(16,parseInt(ev.target.value)||1))}:x))}/>
+          <span style={{fontSize:11,color:TEXT_MUTED}}>Slots</span>
+          {liste.length>1&&<button onClick={()=>setze(liste.filter((_,j)=>j!==i))} aria-label="Einheit entfernen" style={{...bloss,color:ROT,padding:"0 4px"}}><Icon name="trash" size={16}/></button>}
+        </div>)}
+        <button onClick={()=>{
+          // neues AMS vor einzelne Plätze wie "Ext" einsortieren
+          const neu={name:String.fromCharCode(65+liste.filter(x=>(x.slots|0)>1).length),slots:4};
+          const i=liste.findIndex(x=>(x.slots|0)<=1&&x.name);
+          setze(i<0?[...liste,neu]:[...liste.slice(0,i),neu,...liste.slice(i)]);
+        }} style={klein}>+ Einheit (z.B. weiteres AMS)</button>
+      </div>;
+    })}
+  </div>;
+}
 
 // ── RFID Write Modal ──
-function RfidWriteModal({fil,onClose}){
+function RfidWriteModal({fil,startSpoolId,onClose}){
   const spools=[
     ...(fil.stock||[]).map(s=>({...s,label:`📦 ${s.location||"Lager"}`})),
-    ...(fil.inUse||[]).map(u=>({...u,label:`▶ ${u.printer}`})),
+    ...(fil.inUse||[]).map(u=>({...u,label:`▶ ${u.printer}${u.slot?" · "+u.slot:""}`})),
   ];
-  const [spoolId,setSpoolId]=useState(spools[0]?.id||"");
+  const [spoolId,setSpoolId]=useState(startSpoolId||spools[0]?.id||"");
   const [status,setStatus]=useState(null); // {type:"ok"|"err"|"wait",msg}
   const spool=spools.find(s=>s.id===spoolId)||null;
   // Mit Web NFC (Android) direkt aufs Tag, sonst über die Waage (max. 255 Zeichen).
@@ -810,7 +1128,7 @@ function RfidWriteModal({fil,onClose}){
       .catch(()=>setStatus({type:"err",msg:"Kopieren nicht möglich."}));
   }
 
-  const btn={...mono,borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"};
+  const btn={...mono,borderRadius:14,padding:"12px 0",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"};
   return <Modal title="📡 RFID-Tag schreiben" onClose={onClose}>
     <div style={{display:"flex",alignItems:"center",gap:10}}>
       <ColorChip hex={fil.colorHex} size={30}/>
@@ -828,7 +1146,7 @@ function RfidWriteModal({fil,onClose}){
     </Field>}
 
     <Field label={`TAG-INHALT (OPENSPOOL) · ${bytes} BYTES`}>
-      <pre style={{...mono,margin:0,background:"#050e08",border:`1px solid ${fits?"#0e3018":"#5c1a1a"}`,borderRadius:6,padding:"8px 10px",
+      <pre style={{...mono,margin:0,background:"#0d0d10",border:`1px solid ${fits?"#2a2a31":"#5c1a1a"}`,borderRadius:6,padding:"8px 10px",
         color:TEXT_DIM,fontSize:10,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{JSON.stringify(payload,null,1)}</pre>
     </Field>
     {viaScale&&dropped.length>0&&<div style={{...mono,color:TEXT_MUTED,fontSize:10}}>Gekürzt auf {HA_TEXT_MAX} Zeichen, weggelassen: {dropped.join(", ")}</div>}
@@ -839,9 +1157,9 @@ function RfidWriteModal({fil,onClose}){
       ?`Zu lang für die Waage (${HA_TEXT_MAX} Zeichen) — Hersteller oder Farbname kürzen.`
       :`Zu groß für NTAG215 (${NTAG_CAPACITY.NTAG215} Bytes) — NTAG216 verwenden.`}</div>}
 
-    {hasWebNFC&&<button onClick={writePhone} disabled={status?.type==="wait"||!fits} style={{...btn,background:MINT,color:"#000",border:"none"}}>📱 Mit Handy schreiben</button>}
+    {hasWebNFC&&<button onClick={writePhone} disabled={status?.type==="wait"||!fits} style={{...btn,background:TEXT,color:BG,border:"none"}}>📱 Mit Handy schreiben</button>}
     {viaScale&&<>
-      <button onClick={writeScale} disabled={!fits} style={{...btn,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",opacity:fits?1:0.5}}>⚖️ Über Waage schreiben</button>
+      <button onClick={writeScale} disabled={!fits} style={{...btn,background:"#1f1f25",color:"#60a5fa",border:"1px solid #2a2a31",opacity:fits?1:0.5}}>⚖️ Über Waage schreiben</button>
       <button onClick={copyPayload} disabled={!fits} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,fontWeight:400,fontSize:11,padding:"9px 0"}}>📋 Für NFC Tools kopieren</button>
       <div style={{...mono,color:TEXT_MUTED,fontSize:10,textAlign:"center",lineHeight:1.6}}>
         Öffnet die Seite der Waage ({loadScaleHost()}), die den Tag schreibt.<br/>Handy muss im selben WLAN sein · Adresse in ⚙️ einstellen.
@@ -855,7 +1173,7 @@ function RfidWriteModal({fil,onClose}){
 
 // ── Von Waage übernehmen: Bestätigung ──
 function WaageSyncModal({sync,onApply,onClose}){
-  const btn={...mono,borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"};
+  const btn={...mono,borderRadius:14,padding:"12px 0",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"};
   if(sync.fehler)return <Modal title="⚖️ Von Waage übernehmen" onClose={onClose}>
     <div style={{...mono,color:"#f87171",fontSize:12,lineHeight:1.7}}>{SCALE_ERRORS[sync.fehler]||"Die Waage hat einen unbekannten Fehler gemeldet."}</div>
     <button onClick={onClose} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`}}>OK</button>
@@ -879,7 +1197,7 @@ function WaageSyncModal({sync,onApply,onClose}){
       <div style={{color:diff<0?"#facc15":TEXT_DIM,fontSize:11,marginTop:4}}>{diff===0?"unverändert":`${diff>0?"+":""}${diff} g`} · {calcPct(neu,fw)}% von {fw} g</div>
     </div>
     <RemainingBar weight={neu} fullWeight={fw}/>
-    <button onClick={onApply} style={{...btn,background:MINT,color:"#000",border:"none"}}>✓ Übernehmen</button>
+    <button onClick={onApply} style={{...btn,background:TEXT,color:BG,border:"none"}}>✓ Übernehmen</button>
     <button onClick={onClose} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,fontWeight:400}}>Abbrechen</button>
   </Modal>;
 }
@@ -902,7 +1220,7 @@ function DuplicateModal({existing,onMerge,onNew,onClose}){
       Dieser Filament-Typ ist bereits in deiner Liste. Möchtest du die neue Spule dem bestehenden Eintrag hinzufügen oder einen neuen Eintrag anlegen?
     </div>
     <button onClick={onMerge} style={{
-      background:MINT,color:"#000",border:"none",borderRadius:8,
+      background:TEXT,color:BG,border:"none",borderRadius:8,
       padding:"13px 0",fontWeight:700,fontSize:14,cursor:"pointer",...mono,width:"100%"
     }}>+ Zum bestehenden Eintrag hinzufügen</button>
     <button onClick={onNew} style={{
@@ -932,10 +1250,10 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
 
   const fullW=form.fullWeight||1000;
   // kleines Feld für ein eigenes Startgewicht der Spule (leer = Startgewicht des Filaments)
-  const startFeld=(sp,update)=><label style={{...mono,fontSize:9,color:TEXT_MUTED,display:"flex",alignItems:"center",gap:4}}>START
+  const startFeld=(sp,update)=><label style={{...mono,fontSize:11,color:TEXT_MUTED,display:"flex",alignItems:"center",gap:6}}>Start
     <input type="number" value={sp.startWeight||""} placeholder={String(fullW)}
       onChange={e=>update(sp.id,"startWeight",parseInt(e.target.value)||undefined)}
-      style={{...inputStyle,width:62,padding:"3px 5px",fontSize:10}}/>g</label>;
+      style={{...inputStyle,width:70,padding:"5px 8px",fontSize:12,borderRadius:8}}/>g</label>;
 
   // Stock helpers
   function addStock(){setForm(f=>({...f,stock:[...f.stock,{id:genId(),location:"Lager",weight:f.fullWeight||""}]}));}
@@ -1004,53 +1322,75 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
     onSave(form);
   }
 
-  const sectionHead={...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.1em",marginBottom:4};
-  const addBtn=(label,fn,type="stock")=><button onClick={fn} style={{
-    background:type==="stock"?"#001a08":"#00081a",
-    border:`1px solid ${type==="stock"?"#00ff6a":"#00aaff"}`,
-    borderRadius:6,
-    color:type==="stock"?"#00ff6a":"#00aaff",
-    padding:"10px 0",cursor:"pointer",fontSize:12,...mono,width:"100%",
-    boxShadow:type==="stock"?"0 0 8px rgba(0,255,106,0.25)":"0 0 8px rgba(0,170,255,0.25)",
-    fontWeight:700
-  }}>{label}</button>;
+  const karte={background:SURFACE2,borderRadius:18,padding:14,display:"flex",flexDirection:"column",gap:12};
+  const kopfzeile=(icon,text)=><div style={{...etikett,display:"flex",alignItems:"center",gap:6}}><Icon name={icon} size={14}/>{text}</div>;
+  const linkBtn={...bloss,fontSize:12,color:TEXT_DIM};
+  const plusBtn={...bloss,width:"100%",border:`1.5px dashed #3f3f46`,borderRadius:14,padding:"11px 0",fontSize:13,fontWeight:600,color:TEXT_DIM,textAlign:"center"};
+  // Eine Spule als Zeile: Ring, Ort/Drucker, Restgewicht, darunter Start/voll/gewogen
+  const spulenZeile=(sp,ortFeld,update,entfernen,extra)=>{
+    const st=startG(form,sp);
+    return <div key={sp.id} style={{background:BG,borderRadius:14,padding:10,display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+        <Ring hex={form.colorHex} pct={calcPct(sp.weight,st)} size={40} dicke={5} leer={!form.colorHex}/>
+        <div style={{flex:1,minWidth:0}}>{ortFeld}</div>
+        <label style={{width:84,display:"flex",flexDirection:"column",gap:4}}><span style={{...labelCss,marginBottom:0}}>REST (g)</span>
+          <input style={{...inputStyle,width:84}} type="number" value={sp.weight} onChange={e=>update(sp.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm"/></label>
+        <button onClick={()=>entfernen(sp.id)} aria-label="Spule entfernen" style={{...bloss,color:ROT,padding:"10px 2px"}}><Icon name="trash" size={18}/></button>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        {startFeld(sp,update)}
+        <div style={{display:"flex",gap:14,alignItems:"center"}}>
+          {extra}
+          <button onClick={()=>update(sp.id,"weight",st)} style={linkBtn}>→ voll ({st} g)</button>
+        </div>
+      </div>
+      {sp.gewogenAm&&<div style={{fontSize:11,color:TEXT_MUTED,display:"flex",alignItems:"center",gap:5}}><Icon name="scale" size={13}/>gewogen {gewogenText(sp.gewogenAm)}</div>}
+    </div>;
+  };
 
   return <Modal onClose={onClose} title={initial?.id?"Filament bearbeiten":"Neues Filament"}>
-    {!initial?.id&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+    {!initial?.id&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
       <PhotoButton label="📷 Etikett scannen" onChange={handlePhoto} loading={scanning}/>
-      {scanError&&<div style={{color:"#f87171",fontSize:11,...mono}}>{scanError}</div>}
-      {preview&&!scanning&&<div style={{display:"flex",alignItems:"center",gap:8}}>
-        <img src={preview} alt="" style={{height:46,borderRadius:5,border:`1px solid ${BORDER}`}}/>
-        <span style={{...mono,color:MINT,fontSize:10}}>✓ Scan ok — Felder prüfen</span>
+      {scanError&&<div style={{color:ROT,fontSize:12}}>{scanError}</div>}
+      {preview&&!scanning&&<div style={{display:"flex",alignItems:"center",gap:10}}>
+        <img src={preview} alt="" style={{height:46,borderRadius:10}}/>
+        <span style={{color:MINT,fontSize:12}}>✓ Scan ok – Felder prüfen</span>
       </div>}
     </div>}
 
-    {/* Base info */}
-    <div style={{background:SURFACE2,borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:10}}>
-      <div style={sectionHead}>FILAMENT-INFO</div>
+    {/* Filament */}
+    <div style={karte}>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <Ring hex={form.colorHex} pct={100} size={46} dicke={6} leer={!form.colorHex}/>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:16,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{form.colorName||"Neue Farbe"}</div>
+          <div style={{fontSize:12,color:TEXT_DIM}}>{[form.brand,form.material,form.diameter&&`${form.diameter} mm`].filter(Boolean).join(" · ")||"Hersteller, Material, Durchmesser"}</div>
+        </div>
+      </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Field label="HERSTELLER"><input style={inputStyle} value={form.brand} onChange={e=>set("brand",e.target.value)} placeholder="z.B. Bambu Lab"/></Field>
         <Field label="FARBE"><input style={inputStyle} value={form.colorName} onChange={e=>set("colorName",e.target.value)} placeholder="z.B. Black"/></Field>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Field label="MATERIAL"><MaterialCombo value={form.material} onChange={v=>set("material",v)}/></Field>
-        <Field label="FARBE (HEX)">
+        <Field label="FARBCODE">
           {(()=>{
             const colors=Array.isArray(form.colorHex)?form.colorHex:[form.colorHex||""];
             const setColor=(i,v)=>{const arr=[...colors];arr[i]=v;set("colorHex",arr.length===1?arr[0]:arr);};
             const addColor=()=>{if(colors.length<3)set("colorHex",[...colors,"#aaaaaa"]);};
             const removeColor=(i)=>{const arr=colors.filter((_,j)=>j!==i);set("colorHex",arr.length===1?arr[0]:arr);};
-            return <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            return <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {colors.map((c,i)=>(
-                <div key={i} style={{display:"flex",gap:5,alignItems:"center"}}>
-                  <input type="color" value={c||"#808080"} onChange={e=>setColor(i,e.target.value)} title={c?"":"noch keine Farbe"}
-                    style={{width:32,height:32,border:`1px ${c?"solid":"dashed"} ${BORDER}`,borderRadius:5,background:SURFACE,cursor:"pointer",padding:2,flexShrink:0,opacity:c?1:0.25}}/>
-                  <input style={{...inputStyle,flex:1,fontSize:11}} value={c} placeholder="z.B. #1a1a1a" onChange={e=>setColor(i,e.target.value)}/>
-                  {colors.length>1&&<button onClick={removeColor.bind(null,i)} style={{...mono,background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:14,padding:"0 2px",flexShrink:0}}>×</button>}
+                <div key={i} style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <label title={c?"Farbe wählen":"noch keine Farbe"} style={{width:38,height:38,borderRadius:"50%",flexShrink:0,cursor:"pointer",position:"relative",
+                    background:c||"transparent",border:c?"2px solid rgba(255,255,255,0.15)":"1.5px dashed #52525b",overflow:"hidden"}}>
+                    <input type="color" value={c||"#808080"} onChange={e=>setColor(i,e.target.value)} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
+                  </label>
+                  <input style={{...inputStyle,flex:1,minWidth:0,fontSize:13,padding:"10px 8px"}} value={c} placeholder="#1a1a1a" onChange={e=>setColor(i,e.target.value)}/>
+                  {colors.length>1&&<button onClick={()=>removeColor(i)} aria-label="Farbe entfernen" style={{...bloss,color:ROT,padding:"0 2px"}}>✕</button>}
                 </div>
               ))}
-              {colors.length<3&&<button onClick={addColor} style={{...mono,fontSize:9,color:TEXT_DIM,background:"none",border:`1px dashed ${BORDER}`,borderRadius:4,padding:"3px 0",cursor:"pointer"}}>+ Farbe</button>}
-              {colors.length>1&&<div style={{height:10,borderRadius:3,background:colorBg(colors),marginTop:2}}/>}
+              {colors.length<3&&<button onClick={addColor} style={{...bloss,fontSize:11,color:TEXT_DIM,textAlign:"left"}}>+ weitere Farbe (Multicolor)</button>}
             </div>;
           })()}
         </Field>
@@ -1066,320 +1406,78 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
       </div>
     </div>
 
-    {/* Stock */}
-    <div style={{background:"#0a2010",border:"2px solid #1a5c2a",borderRadius:10,padding:"12px",display:"flex",flexDirection:"column",gap:8}}>
-      <div style={{...mono,color:"#4ade80",fontSize:11,letterSpacing:"0.1em",fontWeight:700,marginBottom:2}}>📦 LAGER ({form.stock.length} Spule{form.stock.length!==1?"n":""})</div>
-      {form.stock.map(s=>(
-        <div key={s.id} style={{background:"#061209",border:"1px solid #1a5c2a",borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
-            <div style={{flex:1,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>LAGERORT</span>
-              <LocationCombo value={s.location} onChange={v=>updateStock(s.id,"location",v)}/></div>
-            <label style={{width:90,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>REST (g)</span>
-              <input style={{...inputStyle,width:90}} type="number" value={s.weight} onChange={e=>updateStock(s.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm" title="Restgewicht (g)"/></label>
-            <button onClick={()=>removeStock(s.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={{...mono,fontSize:10,color:"#4ade80"}}>{calcPct(s.weight,startG(form,s))}%</span>
-            {startFeld(s,updateStock)}
-            <button onClick={()=>updateStock(s.id,"weight",startG(form,s))} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:10,cursor:"pointer",padding:0}}>→ voll ({startG(form,s)}g)</button>
-          </div>
-          <RemainingBar weight={s.weight} fullWeight={startG(form,s)}/>
-          {s.gewogenAm&&<div style={{...mono,color:TEXT_MUTED,fontSize:9,textAlign:"right"}}>⚖️ gewogen: {gewogenText(s.gewogenAm)}</div>}
-        </div>
-      ))}
-      {addBtn("+ Spule im Lager hinzufügen",addStock,"stock")}
+    {/* Lager */}
+    <div style={karte}>
+      {kopfzeile("box",`IM LAGER · ${form.stock.length}`)}
+      {form.stock.map(s=>spulenZeile(s,
+        <Field label="LAGERORT"><LocationCombo value={s.location} onChange={v=>updateStock(s.id,"location",v)}/></Field>,
+        updateStock,removeStock))}
+      <button onClick={addStock} style={plusBtn}>+ Spule ins Lager</button>
     </div>
 
-    {/* In Use */}
-    <div style={{background:"#061428",border:"2px solid #1a3f6e",borderRadius:10,padding:"12px",display:"flex",flexDirection:"column",gap:8}}>
-      <div style={{...mono,color:"#60a5fa",fontSize:11,letterSpacing:"0.1em",fontWeight:700,marginBottom:2}}><Icon3D color="#60a5fa" size={12}/>IN GEBRAUCH ({form.inUse.length} Spule{form.inUse.length!==1?"n":""})</div>
-      {form.inUse.map(u=>(
-        <div key={u.id} style={{background:"#030a16",border:"1px solid #1a3f6e",borderRadius:6,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
-            <div style={{flex:1,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>DRUCKER</span>
-              <PrinterSelect value={u.printer} onChange={v=>updateInUse(u.id,"printer",v)} printers={printers}/></div>
-            <label style={{width:90,display:"flex",flexDirection:"column",gap:3}}><span style={{...mono,fontSize:9,color:TEXT_MUTED,letterSpacing:"0.08em"}}>REST (g)</span>
-              <input style={{...inputStyle,width:90}} type="number" value={u.weight} onChange={e=>updateInUse(u.id,"weight",parseInt(e.target.value)||0)} placeholder="Gramm" title="Restgewicht (g)"/></label>
-            <button onClick={()=>removeInUse(u.id)} style={{background:"#1a0808",color:"#f87171",border:"none",borderRadius:5,padding:"6px 8px",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{...mono,fontSize:10,color:"#60a5fa"}}>{calcPct(u.weight,startG(form,u))}%</span>
-            {startFeld(u,updateInUse)}
-            <div style={{display:"flex",gap:12,alignItems:"center"}}>
-              <button onClick={()=>returnInUseToStock(u.id)} style={{...mono,background:"none",border:"none",color:"#4ade80",fontSize:10,cursor:"pointer",padding:0}}>↩ ins Lager</button>
-              <button onClick={()=>updateInUse(u.id,"weight",startG(form,u))} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:10,cursor:"pointer",padding:0}}>→ voll ({startG(form,u)}g)</button>
-            </div>
-          </div>
-          <RemainingBar weight={u.weight} fullWeight={startG(form,u)}/>
-          {u.gewogenAm&&<div style={{...mono,color:TEXT_MUTED,fontSize:9,textAlign:"right"}}>⚖️ gewogen: {gewogenText(u.gewogenAm)}</div>}
-        </div>
-      ))}
+    {/* Drucker */}
+    <div style={karte}>
+      {kopfzeile("printer",`IM DRUCKER · ${form.inUse.length}`)}
+      {form.inUse.map(u=>spulenZeile(u,
+        <Field label="DRUCKER"><PrinterSelect value={u.printer} onChange={v=>updateInUse(u.id,"printer",v)} printers={printers}/></Field>,
+        updateInUse,removeInUse,
+        <button onClick={()=>returnInUseToStock(u.id)} style={{...linkBtn,color:TEXT}}>↩ ins Lager</button>))}
 
       {/* Lager-Spule einlegen: Auswahl statt neue Spule erzeugen */}
       {form.stock.length===0
-        ? <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            <button disabled style={{background:"#0a0f18",border:"1px solid #1c2c40",borderRadius:6,color:TEXT_MUTED,padding:"10px 0",fontSize:12,...mono,width:"100%",fontWeight:700,cursor:"not-allowed",opacity:0.6}}>+ Spule in Drucker hinzufügen</button>
-            <div style={{...mono,color:TEXT_MUTED,fontSize:10,textAlign:"center"}}>Keine Lager-Spule vorhanden — erst im Lager anlegen.</div>
-          </div>
+        ? <div style={{fontSize:12,color:TEXT_MUTED,textAlign:"center",padding:"4px 0"}}>Erst eine Spule im Lager anlegen, dann hier einlegen.</div>
         : !loadPanel
-          ? addBtn("+ Spule in Drucker hinzufügen",()=>{setLoadPrinter(printers[0]||"");setLoadPanel(true);},"inuse")
-          : <div style={{background:"#030a16",border:"1px solid #1a3f6e",borderRadius:8,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
-              <div style={{...mono,color:"#60a5fa",fontSize:11,fontWeight:700}}>Welche Lager-Spule einlegen?</div>
-              <Field label="ZIEL-DRUCKER"><PrinterSelect value={loadPrinter} onChange={setLoadPrinter} printers={printers}/></Field>
+          ? <button onClick={()=>{setLoadPrinter(printers[0]||"");setLoadPanel(true);}} style={plusBtn}>+ Lager-Spule in Drucker einlegen</button>
+          : <div style={{background:BG,borderRadius:14,padding:12,display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{fontSize:14,fontWeight:600}}>Welche Spule einlegen?</div>
+              <Field label="DRUCKER"><PrinterSelect value={loadPrinter} onChange={setLoadPrinter} printers={printers}/></Field>
               {form.stock.map(s=>(
-                <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"#071a0e",borderRadius:6,border:"1px solid #0e3018"}}>
-                  <span style={{color:MINT,fontSize:12}}>●</span>
+                <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:SURFACE2,borderRadius:12}}>
+                  <Ring hex={form.colorHex} pct={calcPct(s.weight,startG(form,s))} size={32} dicke={4} leer={!form.colorHex}/>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{...mono,color:MINT,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.location||"Lager"}</div>
-                    <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{s.weight}g ({calcPct(s.weight,startG(form,s))}%)</div>
+                    <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.location||"Lager"}</div>
+                    <div style={{fontSize:11,color:TEXT_DIM}}>{s.weight} g · {calcPct(s.weight,startG(form,s))} %</div>
                   </div>
-                  <button onClick={()=>{loadStockToPrinter(s.id,loadPrinter);setLoadPanel(false);}} style={{...mono,background:"#60a5fa",color:"#000",border:"none",borderRadius:6,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>→ einlegen</button>
+                  <button onClick={()=>{loadStockToPrinter(s.id,loadPrinter);setLoadPanel(false);}} style={{...bloss,background:TEXT,color:BG,borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:13}}>Einlegen</button>
                 </div>
               ))}
-              <button onClick={()=>setLoadPanel(false)} style={{...mono,background:"none",border:`1px solid ${BORDER}`,borderRadius:6,color:TEXT_DIM,padding:"8px 0",cursor:"pointer",fontSize:11,width:"100%"}}>Abbrechen</button>
+              <button onClick={()=>setLoadPanel(false)} style={{...linkBtn,padding:"4px 0"}}>Abbrechen</button>
             </div>
       }
     </div>
 
     {/* Notes */}
-    <Field label="NOTIZEN (z.B. Drucktemperatur, Besonderheiten)">
-      <textarea style={{...inputStyle,height:72,resize:"none",lineHeight:1.6}} value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="z.B. Temp: 220-230°C, Hotbed: 60-70°C"/>
+    <Field label="NOTIZEN (Z.B. DRUCKTEMPERATUR)">
+      <textarea style={{...inputStyle,height:76,resize:"none",lineHeight:1.6}} value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="z.B. Temp: 220-230°C, Hotbed: 60-70°C"/>
     </Field>
 
-    {speicherFehler&&<div style={{...mono,color:"#f87171",fontSize:11,textAlign:"center",lineHeight:1.5}}>{speicherFehler}</div>}
-    <button onClick={handleSave} style={{
-      background:MINT,color:"#000",border:"none",borderRadius:8,
-      padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4
-    }}>Speichern</button>
-    <button onClick={()=>setRfid(true)} style={{
-      background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:8,
-      padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer",...mono,width:"100%"
-    }}>📡 RFID-Tag schreiben</button>
+    {speicherFehler&&<div style={{color:ROT,fontSize:13,textAlign:"center",lineHeight:1.5}}>{speicherFehler}</div>}
+    <button onClick={handleSave} style={{...bloss,background:TEXT,color:BG,borderRadius:14,padding:"15px 0",fontWeight:700,fontSize:16,width:"100%",textAlign:"center",marginTop:2}}>Speichern</button>
+    <button onClick={()=>setRfid(true)} style={{...bloss,background:SURFACE2,color:TEXT,borderRadius:14,padding:"13px 0",fontWeight:600,fontSize:14,width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+      <Icon name="nfc" size={18}/>RFID-Tag schreiben</button>
     {rfid&&<RfidWriteModal fil={form} onClose={()=>setRfid(false)}/>}
-    {initial?.id&&onDelete&&<button onClick={()=>{if(confirm("Filament löschen?"))onDelete(initial.id);}} style={{
-      background:"#1a0808",color:"#f87171",border:"1px solid #2e1010",borderRadius:8,
-      padding:"11px 0",fontWeight:700,fontSize:13,cursor:"pointer",...mono,width:"100%"
-    }}>✕ Filament löschen</button>}
-  </Modal>;
-}
-
-// ── Move Modal ──
-function MoveModal({filaments,onMove,onClose,printers,onAddPrinter}){
-  const [step,setStep]=useState("scan");
-  const [scanning,setScanning]=useState(false);
-  const [scanError,setScanError]=useState("");
-  const [preview,setPreview]=useState(null);
-  const [matches,setMatches]=useState(null);
-  const [showAll,setShowAll]=useState(false);
-  const [selectedFil,setSelectedFil]=useState(null);
-  const [selectedSpool,setSelectedSpool]=useState(null);
-  const [targetPrinter,setTargetPrinter]=useState(printers[0]||"");
-  const [returnWeight,setReturnWeight]=useState("");
-  const [returnLocation,setReturnLocation]=useState("");
-
-  async function handlePhoto(e){
-    const file=e.target.files[0];if(!file)return;
-    const apiKey=loadApiKey();
-    if(!apiKey){setScanError("Kein API Key. Bitte in ⚙️ eintragen.");return;}
-    setScanError("");setMatches(null);setScanning(true);
-    const reader=new FileReader();
-    reader.onload=async()=>{
-      const b64=reader.result.split(",")[1];
-      setPreview(reader.result);
-      try{
-        const scan=await scanLabel(b64,file.type,"find",apiKey);
-        const scored=filaments.map(f=>({fil:f,score:matchScore(f,scan)}))
-          .filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
-        setMatches(scored);
-        setStep("matches");
-      }catch(err){setScanError("Scan fehlgeschlagen: "+err.message);}
-      setScanning(false);
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function selectFil(fil){setSelectedFil(fil);setStep("spools");}
-  function handleMoveToUse(spool){setSelectedSpool({spool,direction:"toUse"});setTargetPrinter(printers[0]||"");setStep("confirm");}
-  function handleMoveToStock(spool){setSelectedSpool({spool,direction:"toStock"});setReturnWeight(String(spool.weight));setReturnLocation(loadCustomLocs()[0]||"");setStep("confirm");}
-  function executeMove(){
-    if(!selectedSpool||!selectedFil)return;
-    const{spool,direction}=selectedSpool;
-    onAddPrinter([...new Set([...printers,...(direction==="toUse"?[targetPrinter]:[])])].filter(Boolean));
-    onMove(selectedFil.id,spool.id,direction,direction==="toUse"?targetPrinter:{weight:parseInt(returnWeight)||0,location:returnLocation});
-    onClose();
-  }
-
-  const stepTitle={scan:"⇄ Filament bewegen",matches:"⇄ Filament wählen",spools:"⇄ Spule wählen",confirm:"⇄ Bestätigen"};
-
-  return <Modal title={stepTitle[step]||"⇄ Filament bewegen"} onClose={onClose}>
-    {step==="scan"&&<>
-      <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Scanne das Etikett der Spule die du bewegen möchtest.</div>
-      <PhotoButton label="📷 Etikett scannen" onChange={handlePhoto} loading={scanning}/>
-      {scanError&&<div style={{color:"#f87171",fontSize:11,...mono}}>{scanError}</div>}
-      {preview&&!scanning&&<img src={preview} alt="" style={{height:46,borderRadius:5,border:`1px solid ${BORDER}`}}/>}
-      <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:10,display:"flex",flexDirection:"column",gap:6}}>
-        <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em"}}>ODER MANUELL WÄHLEN</div>
-        {filaments.map(f=>(
-          <button key={f.id} onClick={()=>selectFil(f)} style={{background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:8,padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left"}}>
-            <ColorChip hex={f.colorHex} size={22}/>
-            <div style={{flex:1}}>
-              <div style={{...mono,color:TEXT,fontSize:12,fontWeight:700}}>{f.brand} {f.colorName}</div>
-              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{f.material} · Lager: {f.stock?.length||0} · Drucker: {f.inUse?.length||0}</div>
-            </div>
-          </button>
-        ))}
-      </div>
-    </>}
-
-    {step==="matches"&&<>
-      {preview&&<img src={preview} alt="" style={{height:40,borderRadius:5,border:`1px solid ${BORDER}`,marginBottom:4}}/>}
-      <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em"}}>TREFFER</div>
-      {matches.length===0
-        ?<div style={{...mono,color:"#f87171",fontSize:12,textAlign:"center",padding:"12px 0"}}>Kein Treffer — bitte manuell wählen.</div>
-        :matches.map(({fil})=>(
-          <button key={fil.id} onClick={()=>selectFil(fil)} style={{background:SURFACE2,border:`1px solid ${MINT}`,borderRadius:8,padding:"10px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",marginBottom:4}}>
-            <ColorChip hex={fil.colorHex} size={28}/>
-            <div style={{flex:1}}>
-              <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{fil.brand} {fil.colorName}</div>
-              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{fil.material} · Lager: {fil.stock?.length||0} · Drucker: {fil.inUse?.length||0}</div>
-            </div>
-          </button>
-        ))
-      }
-      {!showAll&&<button onClick={()=>setShowAll(true)} style={{...mono,background:"none",border:"none",color:TEXT_DIM,fontSize:11,cursor:"pointer",paddingTop:4}}>Nicht dabei? Alle anzeigen ▾</button>}
-      {showAll&&filaments.filter(f=>!matches.some(m=>m.fil.id===f.id)).map(f=>(
-        <button key={f.id} onClick={()=>selectFil(f)} style={{background:"none",border:`1px dashed ${BORDER}`,borderRadius:8,padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",marginBottom:3}}>
-          <ColorChip hex={f.colorHex} size={20}/>
-          <div><div style={{...mono,color:TEXT_DIM,fontSize:12}}>{f.brand} {f.colorName} · {f.material}</div></div>
-        </button>
-      ))}
-    </>}
-
-    {step==="spools"&&selectedFil&&<>
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:SURFACE2,borderRadius:8}}>
-        <ColorChip hex={selectedFil.colorHex} size={28}/>
-        <div>
-          <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{selectedFil.brand} {selectedFil.colorName}</div>
-          <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{selectedFil.material}</div>
-        </div>
-      </div>
-      {!(selectedFil.stock?.length)&&!(selectedFil.inUse?.length)&&
-        <div style={{...mono,color:"#f87171",fontSize:12,textAlign:"center",padding:"16px 0"}}>Keine Spulen vorhanden.</div>}
-      {(selectedFil.stock?.length||0)>0&&<>
-        <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em"}}>📦 LAGER → DRUCKER</div>
-        {selectedFil.stock.map(s=>(
-          <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#071a0e",borderRadius:6,border:"1px solid #0e3018"}}>
-            <div style={{flex:1}}>
-              <div style={{...mono,color:MINT,fontSize:12}}>{s.location||"Lager"}</div>
-              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{s.weight}g ({calcPct(s.weight,startG(selectedFil,s))}%)</div>
-            </div>
-            <button onClick={()=>handleMoveToUse(s)} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:6,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>→ Drucker</button>
-          </div>
-        ))}
-      </>}
-      {(selectedFil.inUse?.length||0)>0&&<>
-        <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em",marginTop:4}}>3D-DRUCKER → LAGER</div>
-        {selectedFil.inUse.map(u=>(
-          <div key={u.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#030d1a",borderRadius:6,border:"1px solid #0a1e30"}}>
-            <div style={{flex:1}}>
-              <div style={{...mono,color:"#60a5fa",fontSize:12}}>{u.printer}</div>
-              <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{u.weight}g ({calcPct(u.weight,startG(selectedFil,u))}%)</div>
-            </div>
-            <button onClick={()=>handleMoveToStock(u)} style={{...mono,background:"#60a5fa",color:"#000",border:"none",borderRadius:6,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>→ Lager</button>
-          </div>
-        ))}
-      </>}
-    </>}
-
-    {step==="confirm"&&selectedSpool&&selectedFil&&<>
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:SURFACE2,borderRadius:8}}>
-        <ColorChip hex={selectedFil.colorHex} size={26}/>
-        <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{selectedFil.brand} {selectedFil.colorName}</div>
-      </div>
-      {selectedSpool.direction==="toUse"&&<>
-        <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule ({selectedSpool.spool.weight}g) aus <span style={{color:MINT}}>{selectedSpool.spool.location||"Lager"}</span> → welcher Drucker?</div>
-        <Field label="DRUCKER"><PrinterSelect value={targetPrinter} onChange={v=>setTargetPrinter(v)} printers={printers}/></Field>
-      </>}
-      {selectedSpool.direction==="toStock"&&<>
-        <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Spule von <span style={{color:"#60a5fa"}}>{selectedSpool.spool.printer}</span> → Lager</div>
-        <Field label="LAGERORT"><LocationCombo value={returnLocation} onChange={setReturnLocation}/></Field>
-        <Field label="GEWICHT (g)"><input style={inputStyle} type="number" value={returnWeight} onChange={e=>setReturnWeight(e.target.value)}/></Field>
-      </>}
-      <button onClick={executeMove} style={{background:MINT,color:"#000",border:"none",borderRadius:8,padding:"13px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%",marginTop:4}}>
-        {selectedSpool.direction==="toUse"?"→ In Drucker einlegen":"→ Ins Lager zurück"}
-      </button>
-    </>}
-  </Modal>;
-}
-
-// ── Scan Delete Modal ──
-function ScanDeleteModal({filaments,onDelete,onClose}){
-  const [scanning,setScanning]=useState(false);
-  const [matches,setMatches]=useState(null);
-  const [scanError,setScanError]=useState("");
-  const [preview,setPreview]=useState(null);
-
-  async function handlePhoto(e){
-    const file=e.target.files[0];if(!file)return;
-    const apiKey=loadApiKey();
-    if(!apiKey){setScanError("Kein API Key. Bitte in ⚙️ eintragen.");return;}
-    setScanError("");setMatches(null);setScanning(true);
-    const reader=new FileReader();
-    reader.onload=async()=>{
-      const b64=reader.result.split(",")[1];
-      setPreview(reader.result);
-      try{
-        const scan=await scanLabel(b64,file.type,"find",apiKey);
-        const scored=filaments.map(f=>({fil:f,score:matchScore(f,scan)}))
-          .filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
-        setMatches(scored);
-      }catch(err){setScanError("Scan fehlgeschlagen: "+err.message);}
-      setScanning(false);
-    };
-    reader.readAsDataURL(file);
-  }
-
-  return <Modal onClose={onClose} title="Filament suchen & löschen">
-    <div style={{...mono,color:TEXT_DIM,fontSize:11}}>Fotografiere das Etikett des Filaments das du entfernen möchtest.</div>
-    <PhotoButton label="📷 Etikett scannen" onChange={handlePhoto} loading={scanning}/>
-    {scanError&&<div style={{color:"#f87171",fontSize:11,...mono}}>{scanError}</div>}
-    {preview&&<div><img src={preview} alt="" style={{height:46,borderRadius:5,border:`1px solid ${BORDER}`}}/></div>}
-    {matches!==null&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
-      {matches.length===0
-        ?<div style={{...mono,color:"#f87171",fontSize:12,textAlign:"center",padding:"16px 0"}}>Kein passendes Filament gefunden.</div>
-        :<>
-          <div style={{...mono,color:TEXT_DIM,fontSize:10}}>TREFFER:</div>
-          {matches.map(({fil})=>(
-            <button key={fil.id}
-              onClick={()=>{if(confirm(`"${fil.brand} ${fil.colorName}" löschen?`)){onDelete(fil.id);onClose();}}}
-              style={{background:"#180a0a",border:"1px solid #2e1010",borderRadius:8,padding:"10px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,textAlign:"left",width:"100%"}}>
-              <ColorChip hex={fil.colorHex} size={28}/>
-              <div style={{flex:1}}>
-                <div style={{color:TEXT,fontSize:13,fontWeight:700,...mono}}>{fil.brand} {fil.colorName}</div>
-                <div style={{color:TEXT_DIM,fontSize:10,...mono}}>{fil.material} · {(fil.stock?.length||0)+(fil.inUse?.length||0)} Spulen</div>
-              </div>
-              <span style={{...mono,color:"#f87171",fontSize:13}}>✕</span>
-            </button>
-          ))}
-        </>
-      }
-    </div>}
+    {initial?.id&&onDelete&&<button onClick={()=>{if(confirm("Filament löschen?"))onDelete(initial.id);}} style={{...bloss,color:ROT,fontSize:14,fontWeight:600,padding:"8px 0",display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:"100%"}}>
+      <Icon name="trash" size={16}/>Filament löschen</button>}
   </Modal>;
 }
 
 // ── Settings Modal ──
-function SettingsModal({onClose,printers,onSavePrinters,allFilaments,onImport}){
+function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSaveEinheiten,allFilaments,onImport}){
   const [key,setKey]=useState(loadApiKey());
   const [saved,setSaved]=useState(false);
   const [copied,setCopied]=useState(false);
   const [showKey,setShowKey]=useState(false);
   const [printerList,setPrinterList]=useState(printers.join("\n"));
   const [scaleHost,setScaleHost]=useState(loadScaleHost());
+  const [einh,setEinh]=useState(einheiten);
+  const druckerNeu=printerList.split("\n").map(p=>p.trim()).filter(Boolean);
 
   function handleSave(){
     saveApiKey(key.trim());
     saveScaleHost(scaleHost.trim().replace(/^https?:\/\//,"").replace(/\/+$/,""));
-    onSavePrinters(printerList.split("\n").map(p=>p.trim()).filter(Boolean));
+    onSavePrinters(druckerNeu);
+    // nur Einheiten der aktuellen Drucker behalten
+    onSaveEinheiten(Object.fromEntries(druckerNeu.filter(p=>einh[p]).map(p=>[p,einh[p]])));
     setSaved(true);setTimeout(()=>setSaved(false),1500);
   }
   function handleCopy(){
@@ -1389,8 +1487,21 @@ function SettingsModal({onClose,printers,onSavePrinters,allFilaments,onImport}){
     }).catch(()=>{});
   }
 
-  return <Modal title="⚙️ Einstellungen" onClose={onClose}>
-    <div style={{...mono,fontSize:11,lineHeight:1.8,background:"#050e08",border:"1px solid #0e3018",borderRadius:8,padding:"10px 12px"}}>
+  const zahl=(w,l)=><div style={{flex:1,background:SURFACE2,borderRadius:14,padding:"10px 12px"}}>
+    <div style={{fontSize:20,fontWeight:700}}>{w}</div><div style={{fontSize:11,color:TEXT_MUTED}}>{l}</div></div>;
+  return <Modal title="Einstellungen" onClose={onClose}>
+    <div style={{display:"flex",gap:8}}>
+      {zahl(`${(statistik.kg||0).toLocaleString("de-DE",{maximumFractionDigits:1})} kg`,"Filament gesamt")}
+      {zahl(statistik.spulen,"Spulen")}
+      {zahl(statistik.filamente,"Sorten")}
+    </div>
+    <Field label="DRUCKER (EINER PRO ZEILE)">
+      <textarea style={{...inputStyle,height:110,resize:"none",lineHeight:1.6}} value={printerList} onChange={e=>setPrinterList(e.target.value)}/>
+    </Field>
+    <Field label="SLOTS JE DRUCKER (AMS, INDX, EXTERNE SPULE)">
+      <EinheitenEditor drucker={druckerNeu} einheiten={einh} setEinheiten={setEinh}/>
+    </Field>
+    <div style={{...mono,fontSize:11,lineHeight:1.8,background:"#0d0d10",border:"1px solid #2a2a31",borderRadius:12,padding:"10px 12px"}}>
       <div style={{color:MINT,fontWeight:700,marginBottom:4}}>API-Key (Anthropic)</div>
       <div style={{color:TEXT_DIM,marginBottom:8}}>Der Key wird für die KI-Etikettenerkennung im Scan-Tab verwendet. Claude analysiert das Foto und extrahiert automatisch Hersteller, Material, Farbe und Gewicht.</div>
       <div style={{color:TEXT,marginBottom:2}}>Wo bekommst du den Key?</div>
@@ -1409,28 +1520,25 @@ function SettingsModal({onClose,printers,onSavePrinters,allFilaments,onImport}){
           {showKey?"🙈":"👁"}
         </button>
         <button onClick={handleCopy} style={{
-          background:copied?"#1a4020":SURFACE2,color:copied?MINT:TEXT_DIM,
+          background:copied?"#1f3a2a":SURFACE2,color:copied?MINT:TEXT_DIM,
           border:`1px solid ${copied?MINT:BORDER}`,borderRadius:6,padding:"0 10px",
           cursor:"pointer",fontSize:12,...mono,flexShrink:0,transition:"all 0.2s"
         }}>{copied?"✓":"Kopieren"}</button>
       </div>
-    </Field>
-    <Field label="DRUCKER-LISTE (eine pro Zeile)">
-      <textarea style={{...inputStyle,height:100,resize:"none",lineHeight:1.6}} value={printerList} onChange={e=>setPrinterList(e.target.value)}/>
     </Field>
     <Field label="WAAGE-ADRESSE (RFID SCHREIBEN)">
       <input style={inputStyle} value={scaleHost} onChange={e=>setScaleHost(e.target.value)} placeholder={DEFAULT_SCALE_HOST}/>
       <span style={{...mono,color:TEXT_MUTED,fontSize:9,marginTop:3}}>ESPHome-Name + .local oder IP, z.B. spulenwaage.local oder 192.168.1.50</span>
     </Field>
     <button onClick={handleSave} style={{
-      background:saved?"#1a4020":MINT,color:saved?MINT:"#000",border:saved?`1px solid ${MINT}`:"none",
-      borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:14,cursor:"pointer",...mono,width:"100%"
+      background:saved?"#1f3a2a":TEXT,color:saved?MINT:BG,border:saved?`1px solid ${MINT}`:"none",
+      borderRadius:14,padding:"14px 0",fontWeight:700,fontSize:15,cursor:"pointer",...mono,width:"100%"
     }}>{saved?"✓ Gespeichert":"Speichern"}</button>
-    <div style={{...mono,color:TEXT_MUTED,fontSize:10,textAlign:"center"}}>Key wird nur lokal gespeichert.</div>
+    <div style={{...mono,color:TEXT_MUTED,fontSize:11,textAlign:"center"}}>API-Key wird nur auf diesem Gerät gespeichert · {VERSION}</div>
 
     <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:12,display:"flex",flexDirection:"column",gap:8}}>
       <div style={{...mono,color:TEXT_DIM,fontSize:10,letterSpacing:"0.08em"}}>BACKUP</div>
-      <button onClick={()=>exportBackup(allFilaments,printers)} style={{
+      <button onClick={()=>exportBackup(allFilaments,printers,einheiten)} style={{
         ...mono,background:SURFACE2,color:MINT,border:`1px solid ${BORDER}`,
         borderRadius:8,padding:"11px 0",fontSize:13,cursor:"pointer",width:"100%"
       }}>⬇ Backup exportieren</button>
@@ -1444,7 +1552,7 @@ function SettingsModal({onClose,printers,onSavePrinters,allFilaments,onImport}){
           const file=e.target.files[0];if(!file)return;
           importBackup(file,data=>{
             if(window.confirm(`Backup vom ${data.exported?.slice(0,10)} laden? Aktuelle Daten werden ersetzt.`)){
-              onImport(data.filaments,data.printers||printers);
+              onImport(data.filaments,data.printers||printers,data.einheiten);
               setSaved(true);setTimeout(()=>setSaved(false),1500);
             }
           },err=>alert("Import fehlgeschlagen: "+err));
@@ -1456,67 +1564,19 @@ function SettingsModal({onClose,printers,onSavePrinters,allFilaments,onImport}){
   </Modal>;
 }
 
-// ── Empty Illustration ──
-function NeonIllustration(){
-  return <svg viewBox="0 0 340 260" width="100%" style={{display:"block",maxWidth:300,margin:"0 auto"}}>
-    <defs>
-      <filter id="gg"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <filter id="gc"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <filter id="gm"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <filter id="gy"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <filter id="gs"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    </defs>
-    <rect x="108" y="88" width="124" height="125" rx="4" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)" opacity="0.9"/>
-    <rect x="108" y="60" width="7" height="155" rx="2" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
-    <rect x="225" y="60" width="7" height="155" rx="2" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
-    <rect x="106" y="58" width="128" height="9" rx="3" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
-    <rect x="106" y="207" width="128" height="9" rx="3" fill="none" stroke="#00ff88" strokeWidth="1.5" filter="url(#gg)"/>
-    <rect x="118" y="172" width="104" height="9" rx="2" fill="none" stroke="#00ffff" strokeWidth="1.5" filter="url(#gc)"/>
-    <rect x="110" y="128" width="120" height="5" rx="2" fill="none" stroke="#00ffff" strokeWidth="1.2" filter="url(#gc)" opacity="0.8"/>
-    <rect x="152" y="122" width="22" height="25" rx="3" fill="#050f08" stroke="#00ff88" strokeWidth="1.8" filter="url(#gg)"/>
-    <rect x="159" y="145" width="8" height="7" rx="1" fill="#050f08" stroke="#00ffff" strokeWidth="1.2" filter="url(#gc)"/>
-    <circle cx="163" cy="155" r="3.5" fill="#00ffff" opacity="0.9" filter="url(#gs)"/>
-    <circle cx="163" cy="155" r="1.5" fill="#ffffff" opacity="0.8"/>
-    <path d="M163 122 Q163 100 180 88" fill="none" stroke="#ff00ff" strokeWidth="1.5" strokeDasharray="4,3" filter="url(#gm)" opacity="0.8"/>
-    <g transform="translate(52,155) rotate(-18)">
-      <ellipse cx="0" cy="-28" rx="30" ry="9.5" fill="none" stroke="#00ffff" strokeWidth="1.5" filter="url(#gc)"/>
-      <rect x="-30" y="-28" width="60" height="28" fill="#030b0d" opacity="0.9"/>
-      <ellipse cx="0" cy="0" rx="30" ry="9.5" fill="#030b0d" stroke="#00ffff" strokeWidth="1.8" filter="url(#gc)"/>
-      <text x="0" y="-1" textAnchor="middle" fontSize="5" fill="#00ffff" fontFamily="monospace" opacity="0.9">???g</text>
-    </g>
-    <g transform="translate(282,152) rotate(14)">
-      <ellipse cx="0" cy="-24" rx="26" ry="8" fill="none" stroke="#ff00ff" strokeWidth="1.5" filter="url(#gm)"/>
-      <rect x="-26" y="-24" width="52" height="24" fill="#0d030d" opacity="0.9"/>
-      <ellipse cx="0" cy="0" rx="26" ry="8" fill="#0d030d" stroke="#ff00ff" strokeWidth="1.8" filter="url(#gm)"/>
-      <text x="0" y="-1" textAnchor="middle" fontSize="5" fill="#ff00ff" fontFamily="monospace" opacity="0.9">???g</text>
-    </g>
-    <g transform="translate(170,218)">
-      <ellipse cx="-30" cy="0" rx="9" ry="18" fill="#0d0d03" stroke="#ffee00" strokeWidth="1.8" filter="url(#gy)"/>
-      <rect x="-30" y="-18" width="60" height="36" fill="#0d0d03" opacity="0.9"/>
-      <ellipse cx="30" cy="0" rx="9" ry="18" fill="#0d0d03" stroke="#ff9900" strokeWidth="1.8" filter="url(#gy)"/>
-      <text x="0" y="4" textAnchor="middle" fontSize="6" fill="#ffee00" fontFamily="monospace" opacity="0.9">???</text>
-    </g>
-    <text x="295" y="68" fontSize="46" fill="#ff00ff" fontFamily="monospace" fontWeight="bold" filter="url(#gm)" opacity="0.75">?</text>
-    <text x="14" y="75" fontSize="36" fill="#00ffff" fontFamily="monospace" fontWeight="bold" filter="url(#gc)" opacity="0.7">?</text>
-    <text x="175" y="44" fontSize="24" fill="#00ff88" fontFamily="monospace" fontWeight="bold" filter="url(#gg)" opacity="0.8">?</text>
-    <text x="254" y="118" fontSize="16" fill="#ffee00" fontFamily="monospace" fontWeight="bold" filter="url(#gy)" opacity="0.7">?</text>
-    <text x="70" y="105" fontSize="14" fill="#ff00ff" fontFamily="monospace" fontWeight="bold" filter="url(#gm)" opacity="0.6">?</text>
-  </svg>;
-}
-
 // ── Main App ──
 function App(){
   const {zoom,isMobile}=useViewport();
   const [filaments,setFilaments]=useState(loadFilaments);
   const [printers,setPrinters]=useState(loadPrinters);
+  const [einheiten,setEinheiten]=useState(loadEinheiten);
   const [modal,setModal]=useState(null);
-  const [filterMat,setFilterMat]=useState("Alle");
-  const [search,setSearch]=useState("");
 
   // ── Server-Abgleich (nur wenn die App auf dem PocketBase-Server läuft) ──
   const [server,setServer]=useState({modus:"pruefe"}); // pruefe | lokal | ok | fehler
   const filsRef=useRef(filaments); filsRef.current=filaments;
   const printersRef=useRef(printers); printersRef.current=printers;
+  const einheitenRef=useRef(einheiten); einheitenRef.current=einheiten;
   const stand=useRef(new Map());       // app_id → {rid, json}: so liegt es gerade auf dem Server
   const einstStand=useRef(null);       // {rid, json} der Einstellungen auf dem Server
   const ungespeichert=useRef(false);   // lokale Änderungen, die noch nicht auf dem Server sind
@@ -1560,7 +1620,7 @@ function App(){
   }
   function einstellungenHochladen(){
     return inWarteschlange(async()=>{
-      const daten={drucker:printersRef.current,materialien:loadCustomMats(),lagerorte:loadCustomLocs()};
+      const daten={drucker:printersRef.current,einheiten:einheitenRef.current,materialien:loadCustomMats(),lagerorte:loadCustomLocs()};
       const json=JSON.stringify(daten);
       if(einstStand.current&&einstStand.current.json===json)return;
       if(einstStand.current){await pbSchreiben("PATCH","einstellungen",einstStand.current.rid,{daten});einstStand.current.json=json;}
@@ -1571,6 +1631,7 @@ function App(){
   function einstellungenUebernehmen(rec){
     const d=rec.daten||{};
     if(Array.isArray(d.drucker)&&d.drucker.length)setPrinters(d.drucker);
+    if(d.einheiten&&typeof d.einheiten==="object"&&!Array.isArray(d.einheiten))setEinheiten(d.einheiten);
     const vereinen=(key,liste)=>{
       if(!Array.isArray(liste))return;
       let cur=[];try{cur=JSON.parse(localStorage.getItem(key)||"[]");}catch{}
@@ -1619,10 +1680,11 @@ function App(){
   },[filaments,serverAktiv]);
   useEffect(()=>{
     savePrinters(printers);
+    saveEinheiten(einheiten);
     if(!serverAktiv)return;
     const t=setTimeout(einstellungenHochladen,400);
     return ()=>clearTimeout(t);
-  },[printers,serverAktiv]);
+  },[printers,einheiten,serverAktiv]);
 
   // Lagerorte und eigene Materialien aus den vorhandenen Spulen in die Auswahllisten übernehmen
   // (z.B. nach einem Backup-Import, der diese Listen nicht enthält)
@@ -1708,49 +1770,93 @@ function App(){
     setFilaments(f=>[...f,{...newForm,id:genId(),addedAt:Date.now()}]);
     setDupeCheck(null);
   }
-  function handleMove(filId,spoolId,direction,data){
-    setFilaments(f=>f.map(fil=>{
-      if(fil.id!==filId)return fil;
-      if(direction==="toUse"){
-        const spool=fil.stock.find(s=>s.id===spoolId);
-        if(!spool)return fil;
-        const {location,...rest}=spool;
-        return {...fil,stock:fil.stock.filter(s=>s.id!==spoolId),inUse:[...fil.inUse,{...rest,printer:data}]};
+  // Spule in einen Drucker-Slot legen oder ins Lager zurück.
+  // ziel: {printer,slot} oder {location,weight}. Liegt im Ziel-Slot schon eine Spule, geht sie ins Lager.
+  function verschieben(filId,spoolId,ziel){
+    setFilaments(fs=>{
+      let spool=null;
+      let neu=fs.map(f=>{
+        if(f.id!==filId)return f;
+        const s=spulenVon(f).find(x=>x.id===spoolId);
+        if(!s)return f;
+        spool=s;
+        return {...f,stock:(f.stock||[]).filter(x=>x.id!==spoolId),inUse:(f.inUse||[]).filter(x=>x.id!==spoolId)};
+      });
+      if(!spool)return fs;
+      const {location,printer,slot,...rest}=spool;
+      if(ziel.printer){
+        // Aktuelle (ggf. automatisch vergebene) Slots des Ziel-Druckers festschreiben
+        const plan=belegung(neu,[ziel.printer],einheiten)[ziel.printer];
+        const fest=new Map(), raus=new Set();
+        for(const sl of plan.slots){
+          if(!sl.belegt)continue;
+          if(sl.name===ziel.slot)raus.add(sl.belegt.spool.id);else fest.set(sl.belegt.spool.id,sl.name);
+        }
+        neu=neu.map(f=>{
+          if(!(f.inUse||[]).some(u=>fest.has(u.id)||raus.has(u.id)))return f;
+          const zurueck=f.inUse.filter(u=>raus.has(u.id)).map(({printer,slot,...r})=>({...r,location:"Lager"}));
+          return {...f,
+            inUse:f.inUse.filter(u=>!raus.has(u.id)).map(u=>fest.has(u.id)?{...u,slot:fest.get(u.id)}:u),
+            stock:[...(f.stock||[]),...zurueck]};
+        });
+        neu=neu.map(f=>f.id===filId?{...f,inUse:[...(f.inUse||[]),{...rest,printer:ziel.printer,slot:ziel.slot}]}:f);
       }else{
-        const spool=fil.inUse.find(u=>u.id===spoolId);
-        if(!spool)return fil;
-        const {printer,...rest}=spool;
-        return {...fil,inUse:fil.inUse.filter(u=>u.id!==spoolId),stock:[...fil.stock,{...rest,location:data.location||"Lager",weight:data.weight}]};
+        neu=neu.map(f=>f.id===filId?{...f,stock:[...(f.stock||[]),{...rest,location:ziel.location||"Lager",weight:ziel.weight??rest.weight}]}:f);
       }
-    }));
+      return neu;
+    });
   }
 
-  function handleDelete(id){
-    if(confirm("Filament löschen?"))setFilaments(f=>f.filter(x=>x.id!==id));
-  }
   function handleAddPrinter(list){
     setPrinters(list);
   }
 
-  const total=filaments.length;
-  const uniqueMats=new Set(filaments.map(f=>f.material)).size;
-  const totalSpools=filaments.reduce((a,f)=>(f.stock?.length||0)+(f.inUse?.length||0)+a,0);
-  const lowCount=filaments.filter(f=>[...(f.stock||[]),...(f.inUse||[])].some(s=>s.weight<=100)).length;
-  const inUseCount=filaments.reduce((a,f)=>a+(f.inUse?.length||0),0);
-  const usedMats=["Alle",...new Set(filaments.map(f=>f.material))];
+  // ── Ansichten ──
+  const [screen,setScreen]=useState("home");      // home | detail | qr
+  const [detail,setDetail]=useState(null);        // {filId, spoolId}
+  const [filter,setFilter]=useState("Alle");      // Alle | Nachkaufen | <Material>
+  const [suche,setSuche]=useState(null);          // null = Suchfeld geschlossen
+  const [listenAnsicht,setListenAnsicht]=useState(false);
+  const [dupeCheck,setDupeCheck]=useState(null);
+  const [platz,setPlatz]=useState(null);          // {filId, spoolId}
+  const [slotFuellen,setSlotFuellen]=useState(null); // {printer, slot, mehrere}
+  const [rfidFor,setRfidFor]=useState(null);      // {filId, spoolId}
+  const [scanSheet,setScanSheet]=useState(false);
 
-  const filtered=filaments.filter(f=>{
-    if(filterMat!=="Alle"&&f.material!==filterMat)return false;
-    if(search){const q=search.toLowerCase();if(!`${f.brand} ${f.colorName} ${f.material}`.toLowerCase().includes(q))return false;}
+  function zeige(s){setScreen(s);window.scrollTo(0,0);}
+  function openDetail(fil,spoolId){setDetail({filId:fil.id,spoolId:spoolId||null});zeige("detail");}
+
+  // ── Kennzahlen ──
+  const total=filaments.length;
+  const totalSpools=filaments.reduce((a,f)=>a+spulenVon(f).length,0);
+  const alleDrucker=[...new Set([...printers,...filaments.flatMap(f=>(f.inUse||[]).map(u=>u.printer)).filter(Boolean)])];
+  const belegt=belegung(filaments,alleDrucker,einheiten);
+  const nachkaufen=filaments.filter(knapp);
+  const usedMats=[...new Set(filaments.map(f=>f.material).filter(Boolean))].sort();
+  const gesamtKg=filaments.reduce((a,f)=>a+spulenVon(f).reduce((b,s)=>b+(s.weight||0),0),0)/1000;
+
+  // Ort einer Spule als Text: "Regal A" oder "Bambu H2C · A2"
+  function ortVon(s,imDrucker){
+    if(!imDrucker)return s.location||"Lager";
+    const plan=belegt[s.printer];
+    if(!plan||plan.anzahl===1)return s.printer;
+    const sl=plan.slots.find(x=>x.belegt&&x.belegt.spool.id===s.id);
+    return sl?`${s.printer} · ${sl.name}`:s.printer;
+  }
+
+  const q=(suche||"").trim().toLowerCase();
+  const sichtbar=filaments.filter(f=>{
+    if(filter==="Nachkaufen"&&!knapp(f))return false;
+    if(filter!=="Alle"&&filter!=="Nachkaufen"&&f.material!==filter)return false;
+    if(q&&!`${f.brand} ${f.colorName} ${f.material} ${(f.stock||[]).map(s=>s.location).join(" ")} ${(f.inUse||[]).map(s=>s.printer).join(" ")}`.toLowerCase().includes(q))return false;
     return true;
   });
-
-  const [tab,setTab]=useState("cards"); // "cards" | "list"
-  const [screen,setScreen]=useState("home"); // "home" | "inventory"
-  const [dupeCheck,setDupeCheck]=useState(null);
-
-  function goInventory(t){setScreen("inventory");if(t)setTab(t);}
-  function goHome(){setScreen("home");}
+  // Lager-Kacheln: Filamente mit Lager-Spulen (oder ganz ohne Spulen), die leersten zuerst
+  const lager=sichtbar.filter(f=>(f.stock||[]).length>0||!(f.inUse||[]).length)
+    .map(f=>({fil:f,spool:repSpule(f)}))
+    .sort((a,b)=>(a.spool?a.spool.weight/startG(a.fil,a.spool):0)-(b.spool?b.spool.weight/startG(b.fil,b.spool):0));
+  // bei Suche/Filter auch Filamente zeigen, die nur im Drucker liegen
+  const nurImDrucker=(q||filter!=="Alle")?sichtbar.filter(f=>!(f.stock||[]).length&&(f.inUse||[]).length):[];
 
   // ── Gewicht von der Waage übernehmen ──
   const [waageSync,setWaageSync]=useState(null); // {fil,spool,liste,ort,neu} | {fehler}
@@ -1787,110 +1893,141 @@ function App(){
   function applySync(){
     const {fil,spool,liste,neu}=waageSync;
     setFilaments(fs=>fs.map(f=>f.id!==fil.id?f:{...f,[liste]:(f[liste]||[]).map(s=>s.id===spool.id?{...s,weight:neu,gewogenAm:Date.now()}:s)}));
+    setDetail({filId:fil.id,spoolId:spool.id});
+    zeige("detail");
     setWaageSync(null);
   }
-  const syncBtnStyle={...mono,background:"#1a1400",color:"#facc15",border:"1px solid #3a2e00",cursor:"pointer",fontWeight:700};
 
-  const actionBtnsSmall=<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:4}}>
-    <button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:8,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>＋ Neu anlegen</button>
-    <button onClick={()=>{if(total===0){alert("Erst Filament anlegen.");return;}setModal("move");}} style={{...mono,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:8,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>⇄ Bewegen</button>
-    <button onClick={syncFromScale} style={{...syncBtnStyle,gridColumn:"1 / span 2",borderRadius:8,padding:"9px 0",fontSize:12}}>⚖️ Von Waage übernehmen</button>
-  </div>;
+  function slotGeklickt(printer,slot){
+    if(slot.belegt)openDetail(slot.belegt.fil,slot.belegt.spool.id);
+    else setSlotFuellen({printer,slot:slot.name,mehrere:belegt[printer].anzahl>1});
+  }
+  function spuleHinzufuegen(fil){
+    const neu={id:genId(),location:loadCustomLocs()[0]||"Lager",weight:startG(fil)};
+    setFilaments(fs=>fs.map(f=>f.id===fil.id?{...f,stock:[...(f.stock||[]),neu]}:f));
+    setDetail({filId:fil.id,spoolId:neu.id});
+  }
+
+  const detailFil=screen==="detail"&&detail?filaments.find(f=>f.id===detail.filId):null;
+  useEffect(()=>{if(screen==="detail"&&!detailFil)setScreen("home");},[screen,detailFil]);
+  const platzFil=platz&&filaments.find(f=>f.id===platz.filId);
+  const platzSpule=platzFil&&spulenVon(platzFil).find(s=>s.id===platz.spoolId);
+  const rfidFil=rfidFor&&filaments.find(f=>f.id===rfidFor.filId);
+
+  const chip=aktiv=>({...bloss,fontSize:12,padding:"7px 13px",borderRadius:99,whiteSpace:"nowrap",flexShrink:0,
+    background:aktiv?TEXT:SURFACE2,color:aktiv?BG:TEXT_DIM,fontWeight:aktiv?700:500});
+  const dockBtn=aktiv=>({...bloss,padding:10,color:aktiv?TEXT:TEXT_MUTED,display:"flex",alignItems:"center",justifyContent:"center"});
+  const einzel=alleDrucker.filter(p=>belegt[p].anzahl===1);
+  const mehrfach=alleDrucker.filter(p=>belegt[p].anzahl>1);
 
   return <>
-  <div style={{background:"#050805",minHeight:`calc(100vh / ${zoom})`,display:"flex",justifyContent:"center",zoom:zoom}}>
+  <div style={{background:"#08080a",minHeight:`calc(100vh / ${zoom})`,display:"flex",justifyContent:"center",zoom:zoom}}>
   <div style={{width:"100%",maxWidth:DESIGN_WIDTH,minHeight:`calc(100vh / ${zoom})`,background:BG,color:TEXT,
-    paddingBottom:"calc(80px + env(safe-area-inset-bottom))",
+    paddingBottom:"calc(96px + env(safe-area-inset-bottom))",
     boxShadow:isMobile?"none":"0 0 60px rgba(0,0,0,0.8)",position:"relative"}}>
-    {/* Header */}
-    <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"calc(14px + env(safe-area-inset-top)) 14px 12px",position:"sticky",top:0,zIndex:10}}>
+
+    {/* ── Startseite ── */}
+    {screen==="home"&&<div style={{padding:"calc(18px + env(safe-area-inset-top)) 16px 0"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
-          <div style={{fontSize:17,fontWeight:700,...mono,color:MINT}}>🧵 FILAMENT-TRACKER <span style={{fontSize:9,color:TEXT_DIM,fontWeight:400}}>{VERSION}</span> <span style={{fontSize:9,color:TEXT_MUTED,fontWeight:400}}>by MeltingHero</span></div>
-          <div style={{...mono,fontSize:10,color:TEXT_DIM,marginTop:2}}>
-            {uniqueMats} Materialien · {totalSpools} Spulen
-            {lowCount>0&&<span style={{color:"#f87171"}}> · {lowCount} fast leer</span>}
-            {inUseCount>0&&<span style={{color:MINT}}> · {inUseCount} in Drucker</span>}
-            {server.modus==="ok"&&<span style={{color:"#60a5fa"}}> · ⇅ Server</span>}
-            {server.modus==="fehler"&&<span title={server.msg} style={{color:"#f87171"}}> · ⚠ Server nicht erreichbar</span>}
+          <div style={{fontSize:26,fontWeight:700,letterSpacing:"-0.02em",lineHeight:1.1}}>Werkstatt</div>
+          <div style={{fontSize:12,color:TEXT_DIM,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span>{totalSpools} Spulen · {alleDrucker.length} Drucker</span>
+            {server.modus==="ok"&&<span title="Mit dem Server verbunden" style={{width:7,height:7,borderRadius:9,background:"#4ade80",display:"inline-block"}}/>}
+            {server.modus==="fehler"&&<span title={server.msg} style={{color:ROT}}>⚠ Server nicht erreichbar</span>}
           </div>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={()=>setModal("settings")} style={{background:"none",border:"none",color:TEXT_DIM,fontSize:18,cursor:"pointer",padding:"4px 6px"}}>⚙️</button>
-          {total>0&&<button onClick={()=>setModal("scanDelete")} style={{...mono,background:"#180a0a",color:"#f87171",border:"1px solid #2e1010",borderRadius:8,padding:"8px 12px",fontSize:12,cursor:"pointer"}}>🔍</button>}
-        </div>
-      </div>
-    </div>
-
-    {/* Home Screen */}
-    {screen==="home"&&<div style={{padding:"20px 14px",display:"flex",flexDirection:"column",alignItems:"center"}}>
-      <NeonIllustration/>
-      {total>0&&<div style={{...mono,fontSize:11,color:TEXT_DIM,marginTop:4,marginBottom:16,textAlign:"center",lineHeight:1.8}}>
-        <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:"4px 10px",marginBottom:4}}>
-          {[...new Map(filaments.map(f=>[f.material,f.material])).keys()].map(mat=>{
-            const count=filaments.filter(f=>f.material===mat).reduce((a,f)=>(f.stock?.length||0)+(f.inUse?.length||0)+a,0);
-            return <span key={mat} style={{color:TEXT_DIM}}><span style={{color:MINT}}>{mat}</span>{count>0&&<span style={{color:"#f472b6"}}> ×{count}</span>}</span>;
-          })}
-        </div>
-        <span>{totalSpools} Spulen</span>
-        {inUseCount>0&&<span style={{color:MINT}}> · {inUseCount} in Drucker</span>}
-      </div>}
-      {total===0&&<div style={{textAlign:"center",marginTop:8,marginBottom:16}}>
-        <div style={{...mono,fontSize:15,color:MINT,fontWeight:700}}>Was liegt da eigentlich rum?</div>
-        <div style={{...mono,fontSize:11,color:TEXT_DIM,marginTop:6,lineHeight:1.7}}>Keine Ahnung welches Filament du hast?<br/>Genau dafür ist das hier.</div>
-      </div>}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,width:"100%",maxWidth:360}}>
-        <button onClick={()=>setModal("add")} style={{...mono,background:MINT,color:"#000",border:"none",borderRadius:12,padding:"18px 0",fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
-          <span style={{fontSize:26}}>＋</span>Neu anlegen
-        </button>
-        <button onClick={()=>{if(total===0){alert("Erst Filament anlegen.");return;}setModal("move");}} style={{...mono,background:"#0a1e30",color:"#60a5fa",border:"1px solid #1a3a5c",borderRadius:12,padding:"18px 0",fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
-          <span style={{fontSize:26}}>⇄</span>Bewegen
-        </button>
-        <button onClick={syncFromScale} style={{...syncBtnStyle,gridColumn:"1 / span 2",borderRadius:12,padding:"14px 0",fontSize:14}}>
-          ⚖️ Von Waage übernehmen
+        <button onClick={()=>setModal("add")} aria-label="Neu anlegen" style={{...bloss,width:40,height:40,borderRadius:14,background:SURFACE2,border:`1px solid ${BORDER}`,display:"flex",alignItems:"center",justifyContent:"center",color:TEXT}}>
+          <Icon name="plus" size={22}/>
         </button>
       </div>
-    </div>}
 
-    {/* Inventory Screen */}
-    {screen==="inventory"&&<div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-      {actionBtnsSmall}
+      {total===0&&<div style={{textAlign:"center",padding:"48px 8px"}}>
+        <div style={{display:"flex",justifyContent:"center",gap:10,marginBottom:20}}>
+          {["#f97316","#3b82f6","#22c55e"].map((c,i)=><Ring key={c} hex={c} pct={[80,45,95][i]} size={60} dicke={7}/>)}
+        </div>
+        <div style={{fontSize:20,fontWeight:700}}>Was liegt da eigentlich rum?</div>
+        <div style={{fontSize:13,color:TEXT_DIM,marginTop:8,lineHeight:1.6}}>Scanne das Etikett deiner ersten Spule –<br/>der Rest füllt sich fast von allein.</div>
+        <button onClick={()=>setModal("add")} style={{...bloss,marginTop:20,background:TEXT,color:BG,borderRadius:14,padding:"13px 22px",fontWeight:700,fontSize:15}}>Erste Spule anlegen</button>
+      </div>}
+
       {total>0&&<>
-        <input style={{...inputStyle,boxSizing:"border-box"}} placeholder="Suche..." value={search} onChange={e=>setSearch(e.target.value)}/>
-        <select style={inputStyle} value={filterMat} onChange={e=>setFilterMat(e.target.value)}>
-          {usedMats.map(m=><option key={m}>{m}</option>)}
-        </select>
+        {suche!==null&&<div style={{display:"flex",gap:8,marginTop:14}}>
+          <input autoFocus style={{...inputStyle,flex:1}} value={suche} onChange={e=>setSuche(e.target.value)} placeholder="Farbe, Marke, Material, Ort…"/>
+          <button onClick={()=>setSuche(null)} style={{...bloss,color:TEXT_DIM,fontSize:13,padding:"0 4px"}}>Fertig</button>
+        </div>}
+
+        {suche===null&&nachkaufen.length>0&&filter!=="Nachkaufen"&&<button onClick={()=>setFilter("Nachkaufen")} style={{...bloss,width:"100%",marginTop:14,background:"#2a1215",border:"1px solid #4c1d24",borderRadius:16,padding:"10px 14px",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+          <span style={{color:ROT}}><Icon name="cart" size={20}/></span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#fecdd3"}}>{nachkaufen.length} {nachkaufen.length===1?"Filament":"Filamente"} nachkaufen</div>
+            <div style={{fontSize:11,color:ROT,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nachkaufen.slice(0,4).map(f=>`${f.brand} ${f.colorName}`.trim()).join(" · ")}</div>
+          </div>
+          <span style={{color:ROT}}><Icon name="next" size={18}/></span>
+        </button>}
+
+        {suche===null&&filter==="Alle"&&alleDrucker.length>0&&<div style={{marginTop:18}}>
+          <div style={{...etikett,marginBottom:8}}>DRUCKER</div>
+          {mehrfach.map(p=><DruckerKarte key={p} name={p} plan={belegt[p]} onSlot={slotGeklickt}/>)}
+          {einzel.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {einzel.map(p=><DruckerKachel key={p} name={p} plan={belegt[p]} onSlot={slotGeklickt}/>)}
+          </div>}
+        </div>}
+
+        <div style={{display:"flex",gap:6,margin:"18px -16px 14px",padding:"0 16px",overflowX:"auto",scrollbarWidth:"none",alignItems:"center"}}>
+          <button onClick={()=>setFilter("Alle")} style={chip(filter==="Alle")}>Alle</button>
+          {nachkaufen.length>0&&<button onClick={()=>setFilter("Nachkaufen")} style={{...chip(filter==="Nachkaufen"),...(filter!=="Nachkaufen"&&{color:ROT})}}>Nachkaufen {nachkaufen.length}</button>}
+          {usedMats.map(m=><button key={m} onClick={()=>setFilter(m)} style={chip(filter===m)}>{m}</button>)}
+        </div>
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={etikett}>{filter==="Nachkaufen"?"NACHKAUFEN":q?"TREFFER":"LAGER"} · {lager.length+nurImDrucker.length}</div>
+          <button onClick={()=>setListenAnsicht(v=>!v)} aria-label={listenAnsicht?"Ringe zeigen":"Liste zeigen"} style={{...bloss,color:TEXT_DIM,padding:4}}>
+            <Icon name={listenAnsicht?"grid":"list"} size={18}/>
+          </button>
+        </div>
+        {listenAnsicht
+          ?<ListView filaments={sichtbar} onEdit={f=>openDetail(f)}/>
+          :<div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:"14px 6px"}}>
+            {lager.map(({fil,spool})=><LagerKachel key={fil.id} fil={fil} spool={spool} onClick={()=>openDetail(fil,spool?.id)}/>)}
+            {nurImDrucker.map(fil=><LagerKachel key={fil.id} fil={fil} spool={fil.inUse[0]} onClick={()=>openDetail(fil,fil.inUse[0].id)}/>)}
+          </div>}
+        {lager.length+nurImDrucker.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:TEXT_MUTED,fontSize:13}}>Keine Treffer</div>}
+        <div style={{textAlign:"center",fontSize:10,color:"#3f3f46",marginTop:28}}>Filament-Tracker {VERSION} · by MeltingHero</div>
       </>}
-      {tab==="cards"&&<>
-        {total>0&&filtered.length===0&&<div style={{textAlign:"center",padding:"30px 0",...mono,color:TEXT_DIM,fontSize:12}}>Keine Treffer</div>}
-        {filtered.map(f=><FilamentCard key={f.id} fil={f} onEdit={x=>setModal(x)} onDelete={handleDelete}/>)}
-      </>}
-      {tab==="list"&&<ListView filaments={filtered} onEdit={x=>setModal(x)}/>}
     </div>}
 
-    {/* QR Scanner Screen */}
-    {screen==="qr"&&<QRScannerScreen filaments={filaments}/>}
+    {/* ── Spulen-Detail ── */}
+    {screen==="detail"&&detailFil&&<SpulenDetail fil={detailFil} spoolId={detail.spoolId} ortVon={ortVon}
+      onSpool={id=>setDetail(d=>({...d,spoolId:id}))}
+      onBack={()=>zeige("home")}
+      onEdit={()=>setModal(detailFil)}
+      onDelete={()=>{if(confirm(`„${detailFil.brand} ${detailFil.colorName}“ mit allen Spulen löschen?`)){setFilaments(f=>f.filter(x=>x.id!==detailFil.id));zeige("home");}}}
+      onAddSpool={()=>spuleHinzufuegen(detailFil)}
+      onWiegen={syncFromScale}
+      onRfid={id=>setRfidFor({filId:detailFil.id,spoolId:id})}
+      onPlatz={s=>setPlatz({filId:detailFil.id,spoolId:s.id})}/>}
 
-    {/* Bottom Tab Bar */}
-    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:DESIGN_WIDTH,
-      background:SURFACE,borderTop:`1px solid ${BORDER}`,display:"flex",zIndex:20,
-      paddingBottom:"env(safe-area-inset-bottom)"}}>
-      <button onClick={()=>setScreen("home")} style={{flex:1,padding:"12px 0",background:"none",border:"none",
-        color:screen==="home"?MINT:TEXT_DIM,cursor:"pointer",fontSize:11,...mono,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-        <span style={{fontSize:18}}>⌂</span>HOME
-      </button>
-      <button onClick={()=>goInventory("cards")} style={{flex:1,padding:"12px 0",background:"none",border:"none",
-        color:screen==="inventory"&&tab==="cards"?MINT:TEXT_DIM,cursor:"pointer",fontSize:11,...mono,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-        <span style={{fontSize:18}}>⊞</span>KARTEN
-      </button>
-      <button onClick={()=>goInventory("list")} style={{flex:1,padding:"12px 0",background:"none",border:"none",
-        color:screen==="inventory"&&tab==="list"?MINT:TEXT_DIM,cursor:"pointer",fontSize:11,...mono,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-        <span style={{fontSize:18}}>☰</span>LISTE
-      </button>
-      <button onClick={()=>setScreen("qr")} style={{flex:1,padding:"12px 0",background:"none",border:"none",
-        color:screen==="qr"?MINT:TEXT_DIM,cursor:"pointer",fontSize:11,...mono,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-        <span style={{fontSize:18}}>▦</span>SCAN
-      </button>
+    {/* ── Regal-QR ── */}
+    {screen==="qr"&&<div style={{paddingTop:"env(safe-area-inset-top)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,padding:"14px 12px 0"}}>
+        <button onClick={()=>zeige("home")} aria-label="Zurück" style={{...bloss,padding:6,color:TEXT_DIM}}><Icon name="back" size={24}/></button>
+        <span style={{fontSize:17,fontWeight:700}}>Regal-QR</span>
+      </div>
+      <QRScannerScreen filaments={filaments} onOpen={openDetail}/>
+    </div>}
+
+    {/* ── Untere Leiste ── */}
+    <div style={{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:"calc(12px + env(safe-area-inset-bottom))",
+      width:"calc(100% - 28px)",maxWidth:DESIGN_WIDTH-28,height:62,borderRadius:22,
+      background:"rgba(28,28,33,0.88)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",border:`1px solid ${BORDER}`,
+      display:"flex",alignItems:"center",justifyContent:"space-around",zIndex:20}}>
+      <button onClick={()=>{setSuche(null);setFilter("Alle");zeige("home");}} aria-label="Startseite" style={dockBtn(screen==="home"&&suche===null)}><Icon name="home" size={23}/></button>
+      <button onClick={()=>{setSuche("");zeige("home");}} aria-label="Suchen" style={dockBtn(screen==="home"&&suche!==null)}><Icon name="search" size={23}/></button>
+      <button onClick={()=>setScanSheet(true)} aria-label="Scannen" style={{...bloss,width:56,height:56,borderRadius:19,background:TEXT,color:BG,marginTop:-30,
+        display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 8px 24px rgba(0,0,0,0.5)"}}><Icon name="scan" size={27} stroke={2}/></button>
+      <button onClick={syncFromScale} aria-label="Von Waage übernehmen" style={dockBtn(false)}><Icon name="scale" size={23}/></button>
+      <button onClick={()=>setModal("settings")} aria-label="Einstellungen" style={dockBtn(false)}><Icon name="settings" size={23}/></button>
     </div>
 
     </div>
@@ -1902,12 +2039,24 @@ function App(){
       onNew={handleForceNew}
       onClose={()=>setDupeCheck(null)}
     />}
+    {scanSheet&&<ScanSheet filaments={filaments} onClose={()=>setScanSheet(false)}
+      onGefunden={fil=>{setScanSheet(false);openDetail(fil);}}
+      onNeu={()=>{setScanSheet(false);setModal("add");}}
+      onQR={()=>{setScanSheet(false);zeige("qr");}}/>}
+    {platzSpule&&<PlatzModal fil={platzFil} spool={platzSpule} imDrucker={(platzFil.inUse||[]).some(u=>u.id===platzSpule.id)}
+      drucker={alleDrucker} belegt={belegt} onClose={()=>setPlatz(null)}
+      onMove={ziel=>{verschieben(platzFil.id,platzSpule.id,ziel);setPlatz(null);}}/>}
+    {slotFuellen&&<SlotFuellenModal drucker={slotFuellen.printer} slot={slotFuellen.slot} mehrereSlots={slotFuellen.mehrere} filaments={filaments}
+      onClose={()=>setSlotFuellen(null)}
+      onPick={(filId,spoolId)=>{verschieben(filId,spoolId,{printer:slotFuellen.printer,slot:slotFuellen.slot});setSlotFuellen(null);}}/>}
+    {rfidFil&&<RfidWriteModal fil={rfidFil} startSpoolId={rfidFor.spoolId} onClose={()=>setRfidFor(null)}/>}
     {modal==="add"&&<FilamentModal onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
-    {modal==="move"&&<MoveModal filaments={filaments} onMove={handleMove} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
-    {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} allFilaments={filaments} onImport={(fils,prts)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);setModal(null);}}/>}
-    {modal==="scanDelete"&&<ScanDeleteModal filaments={filaments} onDelete={id=>setFilaments(f=>f.filter(x=>x.id!==id))} onClose={()=>setModal(null)}/>}
-    {modal&&modal!=="add"&&modal!=="move"&&modal!=="settings"&&modal!=="scanDelete"&&
-      <FilamentModal initial={modal} onSave={handleSave} onDelete={id=>{setFilaments(f=>f.filter(x=>x.id!==id));setModal(null);}} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
+    {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} einheiten={einheiten}
+      statistik={{kg:gesamtKg,spulen:totalSpools,filamente:total}}
+      onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} onSaveEinheiten={setEinheiten}
+      allFilaments={filaments} onImport={(fils,prts,einh)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);if(einh)setEinheiten(einh);setModal(null);}}/>}
+    {modal&&typeof modal==="object"&&
+      <FilamentModal initial={modal} onSave={handleSave} onDelete={id=>{setFilaments(f=>f.filter(x=>x.id!==id));setModal(null);zeige("home");}} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
   </>;
 }
 
