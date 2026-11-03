@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.17";
+const VERSION="v7.18";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -292,9 +292,9 @@ function parseScaleResult(raw){
 function findSpool(filaments,id){
   for(const fil of filaments){
     const s=(fil.stock||[]).find(x=>x.id===id);
-    if(s)return {fil,spool:s,liste:"stock",ort:`📦 ${s.location||"Lager"}`};
+    if(s)return {fil,spool:s,liste:"stock",ort:s.location||"Lager"};
     const u=(fil.inUse||[]).find(x=>x.id===id);
-    if(u)return {fil,spool:u,liste:"inUse",ort:`▶ ${u.printer}`};
+    if(u)return {fil,spool:u,liste:"inUse",ort:`${u.printer}${u.slot?" · "+u.slot:""}`};
   }
   return null;
 }
@@ -1288,8 +1288,8 @@ function EinheitenEditor({drucker,einheiten,setEinheiten}){
 // ── RFID Write Modal ──
 function RfidWriteModal({fil,startSpoolId,onClose}){
   const spools=[
-    ...(fil.stock||[]).map(s=>({...s,label:`📦 ${s.location||"Lager"}`})),
-    ...(fil.inUse||[]).map(u=>({...u,label:`▶ ${u.printer}${u.slot?" · "+u.slot:""}`})),
+    ...(fil.stock||[]).map(s=>({...s,imDrucker:false})),
+    ...(fil.inUse||[]).map(u=>({...u,imDrucker:true})),
   ];
   const [spoolId,setSpoolId]=useState(startSpoolId||spools[0]?.id||"");
   const [status,setStatus]=useState(null); // {type:"ok"|"err"|"wait",msg}
@@ -1322,77 +1322,110 @@ function RfidWriteModal({fil,startSpoolId,onClose}){
       .catch(()=>setStatus({type:"err",msg:"Kopieren nicht möglich."}));
   }
 
-  const btn={...mono,borderRadius:14,padding:"12px 0",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"};
-  return <Modal title="📡 RFID-Tag schreiben" onClose={onClose}>
-    <div style={{display:"flex",alignItems:"center",gap:10}}>
-      <ColorChip hex={fil.colorHex} size={30}/>
-      <div>
-        <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{fil.brand||"—"} {fil.colorName}</div>
-        <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{fil.material} · {fil.diameter}mm · {fil.fullWeight||1000}g</div>
+  const [inhalt,setInhalt]=useState(false);
+  const haupt={...bloss,display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",borderRadius:14,padding:"13px 0",
+    background:TEXT,color:BG,fontWeight:700,fontSize:15,opacity:fits?1:0.4};
+  const neben={...bloss,display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",borderRadius:14,padding:"11px 0",
+    background:SURFACE2,color:TEXT_DIM,fontSize:13,opacity:fits?1:0.4};
+  const spulenZeile=(id,icon,text,gramm,pct)=>{
+    const aktiv=id===spoolId;
+    return <button key={id||"ohne"} onClick={()=>setSpoolId(id)} style={{...bloss,display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",
+      background:SURFACE2,borderRadius:14,padding:"9px 12px",boxShadow:aktiv?`inset 0 0 0 1.5px ${sichtbareFarbe(hauptfarbe(fil.colorHex))}`:"none"}}>
+      {pct!==null?<Ring hex={fil.colorHex} pct={pct} size={30} dicke={4}/>:<Ring size={30} dicke={4} leer/>}
+      <span style={{color:TEXT_DIM}}><Icon name={icon} size={16}/></span>
+      <span style={{flex:1,minWidth:0,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:aktiv?TEXT:TEXT_DIM}}>{text}</span>
+      {gramm!==null&&<span style={{fontSize:14,fontWeight:700,color:aktiv?TEXT:TEXT_DIM}}>{gramm} g</span>}
+    </button>;
+  };
+  return <Modal title="Tag schreiben" onClose={onClose}>
+    <div style={{display:"flex",alignItems:"center",gap:12}}>
+      <Ring hex={fil.colorHex} pct={spool?calcPct(spool.weight,startG(fil,spool)):0} size={44} dicke={5} leer={!spool}/>
+      <div style={{minWidth:0}}>
+        <div style={{fontSize:15,fontWeight:600}}>{fil.brand||"—"} {fil.colorName}</div>
+        <div style={{fontSize:12,color:TEXT_DIM}}>{[fil.material,fil.diameter&&`${fil.diameter} mm`,`${fil.fullWeight||1000} g`].filter(Boolean).join(" · ")}</div>
       </div>
     </div>
 
-    {spools.length>0&&<Field label="SPULE (ID WIRD MIT AUFS TAG GESCHRIEBEN)">
-      <select style={inputStyle} value={spoolId} onChange={e=>setSpoolId(e.target.value)}>
-        {spools.map(s=><option key={s.id} value={s.id}>{s.label} · {s.weight}g</option>)}
-        <option value="">Ohne Spulen-ID</option>
-      </select>
-    </Field>}
+    {spools.length>0&&<>
+      <div style={{...etikett,marginTop:4}}>WELCHE SPULE?</div>
+      {spools.map(s=>spulenZeile(s.id,s.imDrucker?"printer":"box",s.imDrucker?`${s.printer}${s.slot?" · "+s.slot:""}`:(s.location||"Lager"),
+        s.weight,calcPct(s.weight,startG(fil,s))))}
+      {spulenZeile("","nfc","Ohne Spulen-ID",null,null)}
+      {!spool&&<div style={{fontSize:12,color:TEXT_MUTED,lineHeight:1.5}}>Ohne Spulen-ID kann die Waage das Gewicht später keiner Spule zuordnen.</div>}
+    </>}
 
-    <Field label={`TAG-INHALT (OPENSPOOL) · ${bytes} BYTES`}>
-      <pre style={{...mono,margin:0,background:"#0d0d10",border:`1px solid ${fits?"#2a2a31":"#5c1a1a"}`,borderRadius:6,padding:"8px 10px",
-        color:TEXT_DIM,fontSize:10,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{JSON.stringify(payload,null,1)}</pre>
-    </Field>
-    {viaScale&&dropped.length>0&&<div style={{...mono,color:TEXT_MUTED,fontSize:10}}>Gekürzt auf {HA_TEXT_MAX} Zeichen, weggelassen: {dropped.join(", ")}</div>}
-    {viaScale&&"rest" in payload&&<div style={{...mono,color:"#facc15",fontSize:10,lineHeight:1.6}}>
-      ⚖️ Spule vorher auf die Waage legen! Die Waage berechnet das Leergewicht aus Gesamtgewicht − {payload.rest} g Filament und speichert es auf dem Tag.
+    {viaScale&&"rest" in payload&&<div style={{display:"flex",gap:10,alignItems:"flex-start",background:SURFACE2,borderRadius:14,padding:"11px 12px"}}>
+      <span style={{color:"#facc15",paddingTop:1}}><Icon name="scale" size={20}/></span>
+      <div style={{fontSize:13,lineHeight:1.5}}>
+        <div style={{fontWeight:600}}>Spule zuerst auf die Waage legen</div>
+        <div style={{color:TEXT_DIM,fontSize:12,marginTop:2}}>Die Waage rechnet Gesamtgewicht − {payload.rest} g Filament und speichert das Leergewicht auf dem Tag.</div>
+      </div>
     </div>}
-    {!fits&&<div style={{...mono,color:"#f87171",fontSize:10}}>{viaScale
-      ?`Zu lang für die Waage (${HA_TEXT_MAX} Zeichen) — Hersteller oder Farbname kürzen.`
-      :`Zu groß für NTAG215 (${NTAG_CAPACITY.NTAG215} Bytes) — NTAG216 verwenden.`}</div>}
 
-    {hasWebNFC&&<button onClick={writePhone} disabled={status?.type==="wait"||!fits} style={{...btn,background:TEXT,color:BG,border:"none"}}>📱 Mit Handy schreiben</button>}
+    {!fits&&<div style={{fontSize:13,color:ROT,lineHeight:1.5}}>{viaScale
+      ?`Zu lang für die Waage (${HA_TEXT_MAX} Zeichen) – Hersteller oder Farbname kürzen.`
+      :`Zu groß für NTAG215 (${NTAG_CAPACITY.NTAG215} Bytes) – NTAG216 verwenden.`}</div>}
+
+    {hasWebNFC&&<button onClick={writePhone} disabled={status?.type==="wait"||!fits} style={haupt}><Icon name="nfc" size={20}/>Mit Handy schreiben</button>}
     {viaScale&&<>
-      <button onClick={writeScale} disabled={!fits} style={{...btn,background:"#1f1f25",color:"#60a5fa",border:"1px solid #2a2a31",opacity:fits?1:0.5}}>⚖️ Über Waage schreiben</button>
-      <button onClick={copyPayload} disabled={!fits} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,fontWeight:400,fontSize:11,padding:"9px 0"}}>📋 Für NFC Tools kopieren</button>
-      <div style={{...mono,color:TEXT_MUTED,fontSize:10,textAlign:"center",lineHeight:1.6}}>
-        Öffnet die Seite der Waage ({loadScaleHost()}), die den Tag schreibt.<br/>Handy muss im selben WLAN sein · Adresse in ⚙️ einstellen.
+      <button onClick={writeScale} disabled={!fits} style={haupt}><Icon name="scale" size={20}/>Über Waage schreiben</button>
+      <button onClick={copyPayload} disabled={!fits} style={neben}><Icon name="list" size={17}/>Für NFC Tools kopieren</button>
+      <div style={{fontSize:12,color:TEXT_MUTED,textAlign:"center",lineHeight:1.5}}>
+        Öffnet die Seite der Waage ({loadScaleHost()}).<br/>Handy muss im selben WLAN sein · Adresse in ⚙️ einstellen.
       </div>
     </>}
 
-    {status&&<div style={{...mono,fontSize:11,textAlign:"center",
-      color:status.type==="ok"?MINT:status.type==="err"?"#f87171":"#facc15"}}>{status.msg}</div>}
+    {status&&<div style={{fontSize:13,textAlign:"center",lineHeight:1.5,
+      color:status.type==="ok"?MINT:status.type==="err"?ROT:"#facc15"}}>{status.msg}</div>}
+
+    {/* Technische Details eingeklappt: nur bei Bedarf ansehen */}
+    <button onClick={()=>setInhalt(x=>!x)} aria-expanded={inhalt} style={{...bloss,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,color:TEXT_MUTED,padding:"4px 0"}}>
+      <span>Tag-Inhalt (OpenSpool) · {bytes} Bytes</span>
+      <span style={{display:"inline-block",transform:inhalt?"rotate(180deg)":"none",transition:"transform .25s"}}>▾</span>
+    </button>
+    {inhalt&&<>
+      <pre style={{margin:0,background:BG,border:`1px solid ${fits?BORDER:"#5c1a1a"}`,borderRadius:12,padding:"10px 12px",
+        color:TEXT_DIM,fontSize:11,fontFamily:"ui-monospace,Menlo,monospace",whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{JSON.stringify(payload,null,1)}</pre>
+      {viaScale&&dropped.length>0&&<div style={{fontSize:12,color:TEXT_MUTED}}>Gekürzt auf {HA_TEXT_MAX} Zeichen, weggelassen: {dropped.join(", ")}</div>}
+    </>}
   </Modal>;
 }
 
 // ── Von Waage übernehmen: Bestätigung ──
 function WaageSyncModal({sync,onApply,onClose}){
-  const btn={...mono,borderRadius:14,padding:"12px 0",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"};
-  if(sync.fehler)return <Modal title="⚖️ Von Waage übernehmen" onClose={onClose}>
-    <div style={{...mono,color:"#f87171",fontSize:12,lineHeight:1.7}}>{SCALE_ERRORS[sync.fehler]||"Die Waage hat einen unbekannten Fehler gemeldet."}</div>
-    <button onClick={onClose} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`}}>OK</button>
+  const btn={...bloss,width:"100%",borderRadius:14,padding:"13px 0",fontWeight:700,fontSize:15,textAlign:"center"};
+  const neben={...btn,background:SURFACE2,color:TEXT_DIM,fontWeight:400,fontSize:14};
+  if(sync.fehler)return <Modal title="Von Waage übernehmen" onClose={onClose}>
+    <div style={{display:"flex",gap:10,alignItems:"flex-start",background:SURFACE2,borderRadius:14,padding:"12px"}}>
+      <span style={{color:ROT,paddingTop:1}}><Icon name="scale" size={20}/></span>
+      <div style={{fontSize:14,lineHeight:1.5,color:TEXT_DIM}}>{SCALE_ERRORS[sync.fehler]||"Die Waage hat einen unbekannten Fehler gemeldet."}</div>
+    </div>
+    <button onClick={onClose} style={neben}>OK</button>
   </Modal>;
   const {fil,spool,ort,neu}=sync;
   const fw=startG(fil,spool);
   const alt=spool.weight;
   const diff=neu-alt;
-  return <Modal title="⚖️ Von Waage übernehmen" onClose={onClose}>
-    <div style={{display:"flex",alignItems:"center",gap:10}}>
-      <ColorChip hex={fil.colorHex} size={30}/>
-      <div>
-        <div style={{...mono,color:TEXT,fontSize:13,fontWeight:700}}>{fil.brand||"—"} {fil.colorName}</div>
-        <div style={{...mono,color:TEXT_DIM,fontSize:10}}>{fil.material} · {ort}</div>
-      </div>
+  const pct=calcPct(neu,fw);
+  return <Modal title="Von Waage übernehmen" onClose={onClose}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:15,fontWeight:600}}>{fil.brand||"—"} {fil.colorName}</div>
+      <div style={{fontSize:12,color:TEXT_DIM,marginTop:4,display:"flex",justifyContent:"center",alignItems:"center",gap:6}}>
+        {fil.material}<span style={{color:TEXT_MUTED}}>·</span><Icon name={sync.liste==="inUse"?"printer":"box"} size={14}/>{ort}</div>
     </div>
-    <div style={{...mono,textAlign:"center",padding:"8px 0"}}>
-      <span style={{color:TEXT_DIM,fontSize:16}}>{alt} g</span>
-      <span style={{color:TEXT_MUTED,fontSize:16}}> → </span>
-      <span style={{color:MINT,fontSize:26,fontWeight:700}}>{neu} g</span>
-      <div style={{color:diff<0?"#facc15":TEXT_DIM,fontSize:11,marginTop:4}}>{diff===0?"unverändert":`${diff>0?"+":""}${diff} g`} · {calcPct(neu,fw)}% von {fw} g</div>
+    <div style={{display:"flex",justifyContent:"center",margin:"4px 0"}}>
+      <Ring hex={fil.colorHex} pct={pct} size={168} dicke={13}>
+        <div style={{fontSize:38,fontWeight:700,letterSpacing:"-0.03em",lineHeight:1,color:pct<KNAPP?ROT:TEXT}}>{neu}<span style={{fontSize:15,color:TEXT_DIM,fontWeight:500}}> g</span></div>
+        <div style={{fontSize:12,color:TEXT_DIM,marginTop:5}}>{pct} % von {fw} g</div>
+      </Ring>
     </div>
-    <RemainingBar weight={neu} fullWeight={fw}/>
-    <button onClick={onApply} style={{...btn,background:TEXT,color:BG,border:"none"}}>✓ Übernehmen</button>
-    <button onClick={onClose} style={{...btn,background:SURFACE2,color:TEXT_DIM,border:`1px solid ${BORDER}`,fontWeight:400}}>Abbrechen</button>
+    <div style={{display:"flex",justifyContent:"center",gap:8,fontSize:13}}>
+      <span style={{color:TEXT_MUTED}}>vorher {alt} g</span>
+      <span style={{color:TEXT_MUTED}}>·</span>
+      <span style={{color:diff<0?"#facc15":diff>0?MINT:TEXT_DIM,fontWeight:600}}>{diff===0?"unverändert":`${diff>0?"+":"−"}${Math.abs(diff)} g`}</span>
+    </div>
+    <button onClick={onApply} style={{...btn,background:TEXT,color:BG}}>Übernehmen</button>
+    <button onClick={onClose} style={neben}>Abbrechen</button>
   </Modal>;
 }
 
