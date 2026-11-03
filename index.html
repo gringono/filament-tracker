@@ -31,13 +31,14 @@
     ::-webkit-scrollbar-thumb{background:#2a2a31;border-radius:2px;}
     select option{background:#17171b;color:#f4f4f5;}
     input:focus,select:focus,textarea:focus{border-color:#52525b !important;}
+    @keyframes tippWelle{from{transform:scale(.5);opacity:1}to{transform:scale(1.6);opacity:0}}
   </style>
 </head>
 <body>
 <div id="root"></div>
 <script src="./vendor/react.production.min.js"></script>
 <script src="./vendor/react-dom.production.min.js"></script>
-<script src="./app.js?v=7.16"></script>
+<script src="./app.js?v=7.17"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js");}</script>
 </body>
 </html>

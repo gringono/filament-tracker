@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.16";
+const VERSION="v7.17";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1664,6 +1664,7 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
   const [printerList,setPrinterList]=useState(printers.join("\n"));
   const [scaleHost,setScaleHost]=useState(loadScaleHost());
   const [einh,setEinh]=useState(einheiten);
+  const [beruehrung,setBeruehrung]=useState(beruehrungAn);
   // Lagerorte: gespeicherte Liste + alle, die an Spulen vorkommen. alt = bisheriger Name (null = neu)
   const [orte,setOrte]=useState(()=>{
     const namen=[...new Set([...loadCustomLocs(),...allFilaments.flatMap(f=>(f.stock||[]).map(s=>s.location))])]
@@ -1745,6 +1746,20 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
         }}>{copied?"✓":"Kopieren"}</button>
       </div>
     </Field>
+    <button onClick={()=>{
+        const neu=!beruehrung;
+        try{localStorage.setItem(BERUEHRUNG_KEY,neu?"1":"0");}catch{}
+        window.dispatchEvent(new Event("beruehrungen"));
+        setBeruehrung(neu);
+      }} style={{...bloss,display:"flex",alignItems:"center",gap:12,background:SURFACE2,borderRadius:14,padding:"12px 14px",textAlign:"left",width:"100%"}}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:14,fontWeight:600}}>Berührungen anzeigen</div>
+        <div style={{fontSize:12,color:TEXT_DIM,marginTop:2}}>Für Bildschirmaufnahmen: zeigt einen Kreis, wo du tippst</div>
+      </div>
+      <span style={{width:46,height:28,borderRadius:99,background:beruehrung?"#4ade80":"#3f3f46",position:"relative",flexShrink:0,transition:"background .2s"}}>
+        <span style={{position:"absolute",top:3,left:beruehrung?21:3,width:22,height:22,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+      </span>
+    </button>
     <Field label="WAAGE-ADRESSE (RFID SCHREIBEN)">
       <input style={inputStyle} value={scaleHost} onChange={e=>setScaleHost(e.target.value)} placeholder={DEFAULT_SCALE_HOST}/>
       <span style={{...mono,color:TEXT_MUTED,fontSize:9,marginTop:3}}>ESPHome-Name + .local oder IP, z.B. spulenwaage.local oder 192.168.1.50</span>
@@ -1781,6 +1796,54 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
       {saved&&<div style={{...mono,color:MINT,fontSize:11,textAlign:"center"}}>✓ Import erfolgreich</div>}
     </div>
   </Modal>;
+}
+
+// ── Aufnahme-Modus: Berührungen sichtbar machen ──
+// iPhone-Bildschirmaufnahmen zeigen nicht, wo getippt wird. Ist der Modus an (Einstellungen),
+// zeichnet die App bei jeder Berührung einen Kreis mit Welle; beim Ziehen folgt ein Punkt dem Finger.
+const BERUEHRUNG_KEY="beruehrungen_zeigen";
+function beruehrungAn(){try{return localStorage.getItem(BERUEHRUNG_KEY)==="1";}catch{return false;}}
+function BeruehrungsAnzeige(){
+  const [an,setAn]=useState(beruehrungAn);
+  const [wellen,setWellen]=useState([]);
+  const [finger,setFinger]=useState(null);
+  useEffect(()=>{
+    const umschalten=()=>setAn(beruehrungAn());
+    window.addEventListener("beruehrungen",umschalten);
+    return ()=>window.removeEventListener("beruehrungen",umschalten);
+  },[]);
+  useEffect(()=>{
+    if(!an)return;
+    let unten=false;
+    const runter=e=>{
+      unten=true;
+      const w={id:Math.random(),x:e.clientX,y:e.clientY};
+      setWellen(l=>[...l,w]);
+      setTimeout(()=>setWellen(l=>l.filter(x=>x.id!==w.id)),600);
+      setFinger({x:e.clientX,y:e.clientY});
+    };
+    const zieh=e=>{if(unten)setFinger({x:e.clientX,y:e.clientY});};
+    const hoch=()=>{unten=false;setFinger(null);};
+    // capture: auch Berührungen sehen, die Bedienelemente selbst abfangen (z.B. das Drehrad)
+    window.addEventListener("pointerdown",runter,true);
+    window.addEventListener("pointermove",zieh,true);
+    window.addEventListener("pointerup",hoch,true);
+    window.addEventListener("pointercancel",hoch,true);
+    return ()=>{
+      window.removeEventListener("pointerdown",runter,true);
+      window.removeEventListener("pointermove",zieh,true);
+      window.removeEventListener("pointerup",hoch,true);
+      window.removeEventListener("pointercancel",hoch,true);
+    };
+  },[an]);
+  if(!an)return null;
+  const kreis={position:"fixed",borderRadius:"50%",pointerEvents:"none",zIndex:9999};
+  return <>
+    {wellen.map(w=><div key={w.id} style={{...kreis,left:w.x-30,top:w.y-30,width:60,height:60,
+      border:"3px solid rgba(255,255,255,0.95)",background:"rgba(255,255,255,0.18)",animation:"tippWelle .6s ease-out forwards"}}/>)}
+    {finger&&<div style={{...kreis,left:finger.x-19,top:finger.y-19,width:38,height:38,
+      background:"rgba(255,255,255,0.35)",border:"2px solid rgba(255,255,255,0.9)",boxShadow:"0 0 18px rgba(255,255,255,0.45)"}}/>}
+  </>;
 }
 
 // ── Main App ──
@@ -2275,6 +2338,7 @@ function App(){
       onNew={handleForceNew}
       onClose={()=>setDupeCheck(null)}
     />}
+    <BeruehrungsAnzeige/>
     {radOffen&&<SpulenRad
       eintraege={[{wert:"Alle",label:"Alle",anzahl:totalSpools},
         ...usedMats.map(m=>({wert:m,label:m,anzahl:filaments.filter(f=>f.material===m).reduce((a,f)=>a+spulenVon(f).length,0)}))]}
