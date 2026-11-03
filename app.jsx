@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.18";
+const VERSION="v7.19";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1886,6 +1886,8 @@ function App(){
   const [printers,setPrinters]=useState(loadPrinters);
   const [einheiten,setEinheiten]=useState(loadEinheiten);
   const [modal,setModal]=useState(null);
+  // Für den Start-Wächter in index.html: die App läuft
+  useEffect(()=>{window.__appLaeuft=true;},[]);
 
   // ── Server-Abgleich (nur wenn die App auf dem PocketBase-Server läuft) ──
   const [server,setServer]=useState({modus:"pruefe"}); // pruefe | lokal | ok | fehler
@@ -2398,4 +2400,33 @@ function App(){
   </>;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+// ── Fehlerfang ──
+// Ohne ihn entfernt React bei einem Fehler die ganze Oberfläche – übrig bleibt ein schwarzer Bildschirm.
+// So erscheint stattdessen der Fehlertext (für die Fehlersuche) und ein Knopf zum Neuladen.
+// Die Daten liegen sicher im Zwischenspeicher bzw. auf dem Server.
+class Fehlerfang extends React.Component{
+  constructor(p){super(p);this.state={fehler:null};}
+  static getDerivedStateFromError(fehler){return {fehler};}
+  componentDidCatch(fehler,info){
+    window.__appLaeuft=true;
+    console.error(fehler,info);
+    this.details=`${VERSION} · ${new Date().toLocaleString("de-DE")}\n${fehler&&fehler.stack||fehler}\n${info&&info.componentStack||""}`;
+  }
+  render(){
+    if(!this.state.fehler)return this.props.children;
+    const f=this.state.fehler;
+    const btn={...bloss,width:"100%",borderRadius:14,padding:"13px 0",fontWeight:700,fontSize:15,textAlign:"center"};
+    return <div style={{...mono,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"16px",background:BG,color:TEXT}}>
+      <div style={{background:SURFACE,borderRadius:26,padding:"26px 20px 20px",width:"100%",maxWidth:380,display:"flex",flexDirection:"column",gap:12,textAlign:"center"}}>
+        <div style={{fontSize:20,fontWeight:700}}>Da ist etwas schiefgelaufen</div>
+        <div style={{fontSize:14,color:TEXT_DIM,lineHeight:1.5}}>Deine Daten sind gespeichert. Mit „Neu laden“ geht es normalerweise weiter.</div>
+        <div style={{fontSize:12,color:ROT,background:BG,borderRadius:12,padding:"10px 12px",textAlign:"left",wordBreak:"break-word",fontFamily:"ui-monospace,Menlo,monospace"}}>{String(f&&f.message||f)}</div>
+        <button onClick={()=>location.reload()} style={{...btn,background:TEXT,color:BG}}>Neu laden</button>
+        <button onClick={()=>kopieren(this.details||String(f)).catch(()=>{})} style={{...btn,background:SURFACE2,color:TEXT_DIM,fontWeight:400,fontSize:14}}>Fehlertext kopieren</button>
+        <div style={{fontSize:11,color:TEXT_MUTED}}>{VERSION}</div>
+      </div>
+    </div>;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Fehlerfang><App/></Fehlerfang>);

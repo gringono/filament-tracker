@@ -32,13 +32,42 @@
     select option{background:#17171b;color:#f4f4f5;}
     input:focus,select:focus,textarea:focus{border-color:#52525b !important;}
     @keyframes tippWelle{from{transform:scale(.5);opacity:1}to{transform:scale(1.6);opacity:0}}
+    /* Startanzeige – wird von der App ersetzt, sobald sie läuft */
+    #start{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center}
+    #start .titel{font-family:'Kaushan Script',cursive;font-size:40px;color:#fff}
+    #start .titel span{color:#fb923c}
+    #start .info{font-size:14px;color:#a1a1aa;line-height:1.5;max-width:300px}
+    #start button{margin-top:8px;width:240px;background:#f4f4f5;color:#0d0d10;border:none;border-radius:14px;padding:13px 0;font-weight:700;font-size:15px}
+    #start .fehler{font:12px ui-monospace,Menlo,monospace;color:#fb7185;max-width:300px;word-break:break-word}
   </style>
+  <script>
+    // Start-Wächter: Läuft die App nach 8 s noch nicht (Server nicht erreichbar, Skriptfehler),
+    // statt eines dunklen Bildschirms einen Knopf zum Neuladen zeigen.
+    window.__startFehler = "";
+    window.addEventListener("error", function (e) { if (!window.__appLaeuft) window.__startFehler = e.message || String(e); });
+    setTimeout(function () {
+      if (window.__appLaeuft) return;
+      var s = document.getElementById("start");
+      if (!s) return;
+      s.querySelector(".info").textContent = "Die App startet nicht. Ist das iPhone im Heim-WLAN?";
+      var b = document.createElement("button");
+      b.textContent = "Neu laden";
+      b.onclick = function () { location.reload(); };
+      s.appendChild(b);
+      if (window.__startFehler) {
+        var f = document.createElement("div");
+        f.className = "fehler";
+        f.textContent = window.__startFehler;
+        s.appendChild(f);
+      }
+    }, 8000);
+  </script>
 </head>
 <body>
-<div id="root"></div>
+<div id="root"><div id="start"><div class="titel">Filament <span>Tracker</span></div><div class="info">lädt …</div></div></div>
 <script src="./vendor/react.production.min.js"></script>
 <script src="./vendor/react-dom.production.min.js"></script>
-<script src="./app.js?v=7.18"></script>
+<script src="./app.js?v=7.19"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js");}</script>
 </body>
 </html>
