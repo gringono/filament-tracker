@@ -61,13 +61,32 @@
         s.appendChild(f);
       }
     }, 8000);
+
+    // Aufwachen: iOS-Home-Bildschirm-Apps bleiben nach dem Standby manchmal schwarz,
+    // obwohl die Seite noch läuft. Darum beim Zurückkommen neu zeichnen und nach
+    // längerer Pause (10 min) einmal komplett neu laden.
+    window.__verstecktSeit = 0;
+    function neuZeichnen() {
+      var b = document.body;
+      if (!b) return;
+      b.style.display = "none";
+      void b.offsetHeight;
+      b.style.display = "";
+      window.dispatchEvent(new Event("resize"));
+    }
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") { window.__verstecktSeit = Date.now(); return; }
+      if (window.__verstecktSeit && Date.now() - window.__verstecktSeit > 10 * 60 * 1000) { location.reload(); return; }
+      neuZeichnen();
+    });
+    window.addEventListener("pageshow", function (e) { if (e.persisted) neuZeichnen(); });
   </script>
 </head>
 <body>
 <div id="root"><div id="start"><div class="titel">Filament <span>Tracker</span></div><div class="info">lädt …</div></div></div>
 <script src="./vendor/react.production.min.js"></script>
 <script src="./vendor/react-dom.production.min.js"></script>
-<script src="./app.js?v=7.19"></script>
+<script src="./app.js?v=7.20"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js");}</script>
 </body>
 </html>
