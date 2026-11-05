@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.20";
+const VERSION="v7.21";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -1270,7 +1270,12 @@ function EinheitenEditor({drucker,einheiten,setEinheiten}){
           <input style={{...inputStyle,flex:1}} value={e.name} placeholder="Name, z.B. A oder Ext"
             onChange={ev=>setze(liste.map((x,j)=>j===i?{...x,name:ev.target.value}:x))}/>
           <input style={{...inputStyle,width:60,textAlign:"center"}} type="number" min="1" max="16" value={e.slots}
-            onChange={ev=>setze(liste.map((x,j)=>j===i?{...x,slots:Math.max(1,Math.min(16,parseInt(ev.target.value)||1))}:x))}/>
+            onChange={ev=>{
+              // leer lassen erlaubt (zum Überschreiben), beim Verlassen des Felds wird daraus 1
+              const v=ev.target.value;
+              setze(liste.map((x,j)=>j===i?{...x,slots:v===""?"":Math.max(1,Math.min(16,parseInt(v)||1))}:x));
+            }}
+            onBlur={()=>{if(e.slots==="")setze(liste.map((x,j)=>j===i?{...x,slots:1}:x));}}/>
           <span style={{fontSize:11,color:TEXT_MUTED}}>Slots</span>
           {liste.length>1&&<button onClick={()=>setze(liste.filter((_,j)=>j!==i))} aria-label="Einheit entfernen" style={{...bloss,color:ROT,padding:"0 4px"}}><Icon name="trash" size={16}/></button>}
         </div>)}
