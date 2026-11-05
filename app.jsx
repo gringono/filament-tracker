@@ -31,7 +31,7 @@ function useViewport(){
   return {...vp,zoom,isMobile:vp.width<=600};
 }
 
-const VERSION="v7.21";
+const VERSION="v7.22";
 const STORAGE_KEY="filament_v3";
 const API_KEY_KEY="filament_apikey";
 const PRINTERS_KEY="filament_printers";
@@ -60,6 +60,25 @@ function saveScaleHost(h){localStorage.setItem(SCALE_HOST_KEY,h||DEFAULT_SCALE_H
 // Einheiten je Drucker (AMS, INDX, externe Spule …): {"Bambu H2C":[{name:"A",slots:4},…]}
 function loadEinheiten(){try{return JSON.parse(localStorage.getItem(EINHEITEN_KEY))||{};}catch{return{};}}
 function saveEinheiten(e){localStorage.setItem(EINHEITEN_KEY,JSON.stringify(e));}
+// Fotos je Drucker, verkleinert als data:-Adresse: {"Bambu H2C":"data:image/jpeg;base64,…"}
+const FOTOS_KEY="filament_printer_photos";
+function loadFotos(){try{return JSON.parse(localStorage.getItem(FOTOS_KEY))||{};}catch{return{};}}
+function saveFotos(f){try{localStorage.setItem(FOTOS_KEY,JSON.stringify(f));}catch{}}
+// Foto quadratisch zuschneiden und auf 160×160 px verkleinern (nur wenige KB)
+function fotoVerkleinern(datei){
+  return new Promise((ok,fehler)=>{
+    const url=URL.createObjectURL(datei), img=new Image();
+    img.onload=()=>{
+      const s=Math.min(img.width,img.height), c=document.createElement("canvas");
+      c.width=c.height=160;
+      c.getContext("2d").drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,160,160);
+      URL.revokeObjectURL(url);
+      ok(c.toDataURL("image/jpeg",0.8));
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);fehler(new Error("Das Bild ließ sich nicht öffnen."));};
+    img.src=url;
+  });
+}
 
 // ── Server-Speicher (PocketBase im Heimnetz) ──
 // Läuft die App auf dem PocketBase-Server (Ordner pb_public), speichert sie dort,
@@ -844,7 +863,11 @@ function SlotZelle({slot,size,zeigeName,kompakt,onClick}){
       display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",minHeight:"2.4em"}}>{b?b.fil.material:""}</span>}
   </button>;
 }
-function DruckerKarte({name,plan,onSlot,onOhneSlot}){
+function DruckerFoto({src,size}){
+  if(!src)return null;
+  return <img src={src} alt="" style={{width:size,height:size,borderRadius:Math.round(size/4),objectFit:"cover",flexShrink:0,display:"block"}}/>;
+}
+function DruckerKarte({name,foto,plan,onSlot,onOhneSlot}){
   // Eingeklappt: nur Farbpunkte. Zustand je Drucker merken (nur auf diesem Gerät).
   // Ohne gespeicherten Zustand: ab 13 Slots (3 AMS) eingeklappt, sonst offen.
   const merkKey="drucker_zu:"+name;
@@ -854,7 +877,10 @@ function DruckerKarte({name,plan,onSlot,onOhneSlot}){
   const mehrereGruppen=plan.gruppen.length>1;
   return <div style={{background:SURFACE,borderRadius:18,padding:zu?"12px":"12px 12px 8px",marginBottom:8}}>
     <button onClick={umschalten} aria-expanded={!zu} style={{...bloss,width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:zu?10:12}}>
-      <span style={{fontSize:14,fontWeight:600,color:TEXT}}>{name}</span>
+      <span style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+        <DruckerFoto src={foto} size={32}/>
+        <span style={{fontSize:14,fontWeight:600,color:TEXT}}>{name}</span>
+      </span>
       <span style={{fontSize:11,color:TEXT_MUTED,display:"flex",alignItems:"center",gap:6}}>
         {belegtN} von {plan.anzahl} belegt
         <span style={{display:"inline-block",transform:zu?"rotate(0deg)":"rotate(180deg)",transition:"transform .25s",fontSize:12,color:TEXT_DIM}}>▾</span>
@@ -889,13 +915,16 @@ function DruckerKarte({name,plan,onSlot,onOhneSlot}){
       </>}
   </div>;
 }
-function DruckerKachel({name,plan,onSlot}){
+function DruckerKachel({name,foto,plan,onSlot}){
   const s=plan.slots[0], b=s.belegt;
   const pct=b?calcPct(b.spool.weight,startG(b.fil,b.spool)):0;
   return <button onClick={()=>onSlot(name,s)} style={{...bloss,background:SURFACE,borderRadius:16,padding:10,display:"flex",alignItems:"center",gap:10,textAlign:"left",minWidth:0}}>
     <Ring hex={b?.fil.colorHex} pct={pct} size={40} dicke={5} leer={!b}/>
     <div style={{minWidth:0}}>
-      <div style={{fontSize:11,color:TEXT_DIM,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{name}</div>
+      <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+        <DruckerFoto src={foto} size={18}/>
+        <div style={{fontSize:11,color:TEXT_DIM,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{name}</div>
+      </div>
       <div style={{fontSize:14,fontWeight:600,color:b?(pct<KNAPP?ROT:TEXT):TEXT_MUTED}}>{b?`${b.spool.weight} g`:"leer"}</div>
       {b&&<div style={{fontSize:11,color:TEXT_MUTED,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{[b.fil.colorName,b.fil.material].filter(Boolean).join(" · ")}</div>}
       {plan.extra.length>0&&<div style={{fontSize:10,color:"#facc15"}}>+{plan.extra.length} weitere</div>}
@@ -995,7 +1024,7 @@ function SpulenDetail({fil,spoolId,ortVon,onSpool,onBack,onEdit,onDelete,onAddSp
 }
 
 // ── Spule in Drucker / ins Lager ──
-function PlatzModal({fil,spool,imDrucker,drucker,belegt,startDrucker,onMove,onClose}){
+function PlatzModal({fil,spool,imDrucker,drucker,fotos,belegt,startDrucker,onMove,onClose}){
   const [ziel,setZiel]=useState(startDrucker||null);
   const [ort,setOrt]=useState(loadCustomLocs()[0]||"Lager");
   const [gewicht,setGewicht]=useState(String(spool.weight));
@@ -1054,9 +1083,12 @@ function PlatzModal({fil,spool,imDrucker,drucker,belegt,startDrucker,onMove,onCl
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
       {drucker.map(p=>{
         const plan=belegt[p], frei=plan.slots.filter(s=>!s.belegt).length;
-        return <button key={p} onClick={()=>waehleDrucker(p)} style={btn}>
-          <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p}</div>
-          <div style={{fontSize:11,color:frei?MINT:TEXT_MUTED,marginTop:2}}>{plan.anzahl===1?(frei?"frei":"belegt"):`${frei} von ${plan.anzahl} frei`}</div>
+        return <button key={p} onClick={()=>waehleDrucker(p)} style={{...btn,display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+          <DruckerFoto src={fotos&&fotos[p]} size={36}/>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p}</div>
+            <div style={{fontSize:11,color:frei?MINT:TEXT_MUTED,marginTop:2}}>{plan.anzahl===1?(frei?"frei":"belegt"):`${frei} von ${plan.anzahl} frei`}</div>
+          </div>
         </button>;
       })}
     </div>
@@ -1257,7 +1289,22 @@ function SpulenRad({eintraege,wert,onWahl,onClose}){
 }
 
 // ── Drucker-Einheiten bearbeiten (Einstellungen) ──
-function EinheitenEditor({drucker,einheiten,setEinheiten}){
+// Foto antippen = neues Foto aufnehmen oder aus der Mediathek wählen
+function FotoWahl({src,onWahl}){
+  async function gewaehlt(e){
+    const datei=e.target.files&&e.target.files[0];
+    e.target.value="";
+    if(!datei)return;
+    try{onWahl(await fotoVerkleinern(datei));}catch(err){alert(err.message);}
+  }
+  return <label aria-label={src?"Foto ändern":"Foto hinzufügen"} style={{width:44,height:44,borderRadius:11,flexShrink:0,cursor:"pointer",overflow:"hidden",
+    display:"flex",alignItems:"center",justifyContent:"center",color:TEXT_MUTED,border:src?"none":`1.5px dashed #52525b`}}>
+    {src?<DruckerFoto src={src} size={44}/>:<Icon name="camera" size={18}/>}
+    <input type="file" accept="image/*" onChange={gewaehlt} style={{display:"none"}}/>
+  </label>;
+}
+
+function EinheitenEditor({drucker,einheiten,setEinheiten,fotos,setFotos}){
   const klein={...bloss,fontSize:12,color:TEXT_DIM,border:`1px dashed ${BORDER}`,borderRadius:8,padding:"6px 0",width:"100%",textAlign:"center"};
   return <div style={{display:"flex",flexDirection:"column",gap:8}}>
     {drucker.map(p=>{
@@ -1265,7 +1312,11 @@ function EinheitenEditor({drucker,einheiten,setEinheiten}){
       const setze=neu=>setEinheiten(e=>({...e,[p]:neu}));
       const summe=liste.reduce((a,e)=>a+Math.max(1,e.slots|0),0);
       return <div key={p} style={{background:SURFACE2,borderRadius:14,padding:"10px 12px",display:"flex",flexDirection:"column",gap:6}}>
-        <div style={{fontSize:14,fontWeight:600}}>{p} <span style={{color:TEXT_MUTED,fontWeight:400,fontSize:12}}>· {summe} Slot{summe!==1?"s":""}</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <FotoWahl src={fotos[p]} onWahl={src=>setFotos(f=>({...f,[p]:src}))}/>
+          <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:600}}>{p} <span style={{color:TEXT_MUTED,fontWeight:400,fontSize:12}}>· {summe} Slot{summe!==1?"s":""}</span></div>
+          {fotos[p]&&<button onClick={()=>setFotos(f=>{const n={...f};delete n[p];return n;})} style={{...bloss,fontSize:12,color:TEXT_MUTED,padding:"4px 0"}}>Foto entfernen</button>}
+        </div>
         {liste.map((e,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center"}}>
           <input style={{...inputStyle,flex:1}} value={e.name} placeholder="Name, z.B. A oder Ext"
             onChange={ev=>setze(liste.map((x,j)=>j===i?{...x,name:ev.target.value}:x))}/>
@@ -1694,7 +1745,7 @@ function FilamentModal({initial,onSave,onClose,onDelete,printers,onAddPrinter}){
 }
 
 // ── Settings Modal ──
-function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSaveEinheiten,onSaveOrte,allFilaments,onImport}){
+function SettingsModal({onClose,printers,einheiten,fotos,statistik,onSavePrinters,onSaveEinheiten,onSaveFotos,onSaveOrte,allFilaments,onImport}){
   const [key,setKey]=useState(loadApiKey());
   const [saved,setSaved]=useState(false);
   const [copied,setCopied]=useState(false);
@@ -1702,6 +1753,7 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
   const [printerList,setPrinterList]=useState(printers.join("\n"));
   const [scaleHost,setScaleHost]=useState(loadScaleHost());
   const [einh,setEinh]=useState(einheiten);
+  const [fotosNeu,setFotosNeu]=useState(fotos);
   const [beruehrung,setBeruehrung]=useState(beruehrungAn);
   // Lagerorte: gespeicherte Liste + alle, die an Spulen vorkommen. alt = bisheriger Name (null = neu)
   const [orte,setOrte]=useState(()=>{
@@ -1718,6 +1770,7 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
     onSavePrinters(druckerNeu);
     // nur Einheiten der aktuellen Drucker behalten
     onSaveEinheiten(Object.fromEntries(druckerNeu.filter(p=>einh[p]).map(p=>[p,einh[p]])));
+    onSaveFotos(Object.fromEntries(druckerNeu.filter(p=>fotosNeu[p]).map(p=>[p,fotosNeu[p]])));
     onSaveOrte(orte.map(o=>({alt:o.alt,neu:o.neu.trim()})));
     setSaved(true);setTimeout(()=>setSaved(false),1500);
   }
@@ -1739,8 +1792,8 @@ function SettingsModal({onClose,printers,einheiten,statistik,onSavePrinters,onSa
     <Field label="DRUCKER (EINER PRO ZEILE)">
       <textarea style={{...inputStyle,height:110,resize:"none",lineHeight:1.6}} value={printerList} onChange={e=>setPrinterList(e.target.value)}/>
     </Field>
-    <Field label="SLOTS JE DRUCKER (AMS, INDX, EXTERNE SPULE)">
-      <EinheitenEditor drucker={druckerNeu} einheiten={einh} setEinheiten={setEinh}/>
+    <Field label="FOTO UND SLOTS JE DRUCKER (AMS, INDX, EXTERNE SPULE)">
+      <EinheitenEditor drucker={druckerNeu} einheiten={einh} setEinheiten={setEinh} fotos={fotosNeu} setFotos={setFotosNeu}/>
     </Field>
     <Field label="LAGERORTE (UMBENENNEN ÄNDERT ALLE SPULEN MIT)">
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -1890,6 +1943,7 @@ function App(){
   const [filaments,setFilaments]=useState(loadFilaments);
   const [printers,setPrinters]=useState(loadPrinters);
   const [einheiten,setEinheiten]=useState(loadEinheiten);
+  const [fotos,setFotos]=useState(loadFotos);
   const [modal,setModal]=useState(null);
   // Für den Start-Wächter in index.html: die App läuft
   useEffect(()=>{window.__appLaeuft=true;},[]);
@@ -1899,6 +1953,7 @@ function App(){
   const filsRef=useRef(filaments); filsRef.current=filaments;
   const printersRef=useRef(printers); printersRef.current=printers;
   const einheitenRef=useRef(einheiten); einheitenRef.current=einheiten;
+  const fotosRef=useRef(fotos); fotosRef.current=fotos;
   const stand=useRef(new Map());       // app_id → {rid, json}: so liegt es gerade auf dem Server
   const einstStand=useRef(null);       // {rid, json} der Einstellungen auf dem Server
   const ungespeichert=useRef(false);   // lokale Änderungen, die noch nicht auf dem Server sind
@@ -1942,7 +1997,7 @@ function App(){
   }
   function einstellungenHochladen(){
     return inWarteschlange(async()=>{
-      const daten={drucker:printersRef.current,einheiten:einheitenRef.current,materialien:loadCustomMats(),lagerorte:loadCustomLocs()};
+      const daten={drucker:printersRef.current,einheiten:einheitenRef.current,fotos:fotosRef.current,materialien:loadCustomMats(),lagerorte:loadCustomLocs()};
       const json=JSON.stringify(daten);
       if(einstStand.current&&einstStand.current.json===json)return;
       if(einstStand.current){await pbSchreiben("PATCH","einstellungen",einstStand.current.rid,{daten});einstStand.current.json=json;}
@@ -1954,6 +2009,7 @@ function App(){
     const d=rec.daten||{};
     if(Array.isArray(d.drucker)&&d.drucker.length)setPrinters(d.drucker);
     if(d.einheiten&&typeof d.einheiten==="object"&&!Array.isArray(d.einheiten))setEinheiten(d.einheiten);
+    if(d.fotos&&typeof d.fotos==="object"&&!Array.isArray(d.fotos))setFotos(d.fotos);
     const vereinen=(key,liste)=>{
       if(!Array.isArray(liste))return;
       let cur=[];try{cur=JSON.parse(localStorage.getItem(key)||"[]");}catch{}
@@ -2004,10 +2060,11 @@ function App(){
   useEffect(()=>{
     savePrinters(printers);
     saveEinheiten(einheiten);
+    saveFotos(fotos);
     if(!serverAktiv)return;
     const t=setTimeout(einstellungenHochladen,400);
     return ()=>clearTimeout(t);
-  },[printers,einheiten,serverAktiv]);
+  },[printers,einheiten,fotos,serverAktiv]);
 
   // Lagerorte und eigene Materialien aus den vorhandenen Spulen in die Auswahllisten übernehmen
   // (z.B. nach einem Backup-Import, der diese Listen nicht enthält)
@@ -2300,10 +2357,10 @@ function App(){
 
         {suche===null&&filter==="Alle"&&alleDrucker.length>0&&<div style={{marginTop:18}}>
           <div style={{...etikett,marginBottom:8}}>DRUCKER</div>
-          {mehrfach.map(p=><DruckerKarte key={p} name={p} plan={belegt[p]} onSlot={slotGeklickt}
+          {mehrfach.map(p=><DruckerKarte key={p} name={p} foto={fotos[p]} plan={belegt[p]} onSlot={slotGeklickt}
             onOhneSlot={(drucker,x)=>setPlatz({filId:x.fil.id,spoolId:x.spool.id,drucker})}/>)}
           {einzel.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            {einzel.map(p=><DruckerKachel key={p} name={p} plan={belegt[p]} onSlot={slotGeklickt}/>)}
+            {einzel.map(p=><DruckerKachel key={p} name={p} foto={fotos[p]} plan={belegt[p]} onSlot={slotGeklickt}/>)}
           </div>}
         </div>}
 
@@ -2389,16 +2446,16 @@ function App(){
       onNeu={()=>{setScanSheet(false);setModal("add");}}
       onQR={()=>{setScanSheet(false);zeige("qr");}}/>}
     {platzSpule&&<PlatzModal fil={platzFil} spool={platzSpule} imDrucker={(platzFil.inUse||[]).some(u=>u.id===platzSpule.id)}
-      drucker={alleDrucker} belegt={belegt} startDrucker={platz.drucker} onClose={()=>setPlatz(null)}
+      drucker={alleDrucker} fotos={fotos} belegt={belegt} startDrucker={platz.drucker} onClose={()=>setPlatz(null)}
       onMove={ziel=>{verschieben(platzFil.id,platzSpule.id,ziel);setPlatz(null);}}/>}
     {slotFuellen&&<SlotFuellenModal drucker={slotFuellen.printer} slot={slotFuellen.slot} mehrereSlots={slotFuellen.mehrere} filaments={filaments}
       onClose={()=>setSlotFuellen(null)}
       onPick={(filId,spoolId)=>{verschieben(filId,spoolId,{printer:slotFuellen.printer,slot:slotFuellen.slot});setSlotFuellen(null);}}/>}
     {rfidFil&&<RfidWriteModal fil={rfidFil} startSpoolId={rfidFor.spoolId} onClose={()=>setRfidFor(null)}/>}
     {modal==="add"&&<FilamentModal onSave={handleSave} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
-    {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} einheiten={einheiten}
+    {modal==="settings"&&<SettingsModal onClose={()=>setModal(null)} printers={printers} einheiten={einheiten} fotos={fotos}
       statistik={{kg:gesamtKg,spulen:totalSpools,materialien:usedMats.length}}
-      onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} onSaveEinheiten={setEinheiten} onSaveOrte={orteSpeichern}
+      onSavePrinters={p=>{setPrinters(p);savePrinters(p);}} onSaveEinheiten={setEinheiten} onSaveFotos={setFotos} onSaveOrte={orteSpeichern}
       allFilaments={filaments} onImport={(fils,prts,einh)=>{setFilaments(fils);saveFilaments(fils);setPrinters(prts);savePrinters(prts);if(einh)setEinheiten(einh);setModal(null);}}/>}
     {modal&&typeof modal==="object"&&
       <FilamentModal initial={modal} onSave={handleSave} onDelete={id=>{setFilaments(f=>f.filter(x=>x.id!==id));setModal(null);zeige("home");}} onClose={()=>setModal(null)} printers={printers} onAddPrinter={handleAddPrinter}/>}
